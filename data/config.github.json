@@ -172,12 +172,12 @@
     "default_group": "other",
     "default_group_limit": null
   },
-    "webhook": {
+      "webhook": {
     "enabled": true,
-    "url": "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage",
+    "url_env": "TELEGRAM_WEBHOOK_URL",
     "payload_template": {
-      "chat_id": "${TELEGRAM_CHAT_ID}",
+      "chat_id": "6466873727",
       "text": "{{content}}"
     }
   }
-  }
+    }
