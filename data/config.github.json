@@ -119,6 +119,164 @@
         "enabled": true,
         "category": "linux-kernel",
         "profile": "tech-news"
+      },
+      {
+        "name": "机器之心 (国内AI)",
+        "url": "https://rsshub.app/jiqizhixin/daily",
+        "enabled": true,
+        "category": "ai-news-cn",
+        "profile": "tech-news"
+      },
+      {
+        "name": "晚点LatePost (商业科技)",
+        "url": "https://rsshub.app/latepost",
+        "enabled": true,
+        "category": "business-tech-cn",
+        "profile": "tech-news"
+      },
+      {
+        "name": "36氪 (科技创投)",
+        "url": "https://rsshub.app/36kr/newsflashes",
+        "enabled": true,
+        "category": "tech-business-cn",
+        "profile": "tech-news"
+      },
+      {
+        "name": "OpenAI News",
+        "url": "https://openai.com/news/rss.xml",
+        "enabled": true,
+        "category": "ai-official",
+        "profile": "tech-news"
+      },
+      {
+        "name": "LangChain Blog (Agent)",
+        "url": "https://blog.langchain.dev/rss/",
+        "enabled": true,
+        "category": "ai-agent",
+        "profile": "tech-news",
+        "content_extractor": "trafilatura"
+      },
+      {
+        "name": "Wall Street Journal",
+        "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+        "enabled": true,
+        "category": "finance",
+        "profile": "tech-news"
+      },
+      {
+        "name": "华尔街见闻",
+        "url": "https://rsshub.app/wallstreetcn/news/global",
+        "enabled": true,
+        "category": "finance-cn",
+        "profile": "tech-news"
+      },
+      {
+        "name": "BBC Learning English",
+        "url": "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
+        "enabled": true,
+        "category": "english-learning",
+        "profile": "tech-news",
+        "content_extractor": "trafilatura"
+      },
+      {
+        "name": "豆瓣读书最受关注",
+        "url": "https://rsshub.app/douban/book/latest",
+        "enabled": true,
+        "category": "book",
+        "profile": "tech-news"
+      },
+      {
+        "name": "InfoQ 敏捷开发",
+        "url": "https://rsshub.app/infoq/topic/agile",
+        "enabled": true,
+        "category": "project-management",
+        "profile": "tech-news",
+        "content_extractor": "trafilatura"
+      },
+      {
+        "name": "Atlassian 敏捷管理博客",
+        "url": "https://www.atlassian.com/blog/feed",
+        "enabled": true,
+        "category": "project-management",
+        "profile": "tech-news",
+        "content_extractor": "trafilatura"
+      },
+      {
+        "name": "Runway (AI视频官方)",
+        "url": "https://rsshub.app/twitter/user/runwayml",
+        "enabled": true,
+        "category": "ai-video",
+        "profile": "tech-news"
+      },
+      {
+        "name": "X - Andrej Karpathy",
+        "url": "https://rsshub.app/twitter/user/karpathy",
+        "enabled": true,
+        "category": "ai-x",
+        "profile": "tech-news"
+      },
+      {
+        "name": "X - Simon Willison",
+        "url": "https://rsshub.app/twitter/user/simonw",
+        "enabled": true,
+        "category": "ai-x",
+        "profile": "tech-news"
+      },
+      {
+        "name": "X - 宝玉 (Dotey)",
+        "url": "https://rsshub.app/twitter/user/dotey",
+        "enabled": true,
+        "category": "ai-x",
+        "profile": "tech-news"
+      },
+      {
+        "name": "X - Lilian Weng",
+        "url": "https://rsshub.app/twitter/user/lilianweng",
+        "enabled": true,
+        "category": "ai-x",
+        "profile": "tech-news"
+      },
+      {
+        "name": "X - Ethan Mollick",
+        "url": "https://rsshub.app/twitter/user/emollick",
+        "enabled": true,
+        "category": "ai-x",
+        "profile": "tech-news"
+      },
+      {
+        "name": "YouTube - AI Explained",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "enabled": true,
+        "category": "ai-youtube",
+        "profile": "tech-news"
+      },
+      {
+        "name": "YouTube - 技术爬爬虾",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "enabled": true,
+        "category": "ai-youtube",
+        "profile": "tech-news"
+      },
+      {
+        "name": "YouTube - Matt Wolfe",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti34w",
+        "enabled": true,
+        "category": "ai-youtube",
+        "profile": "tech-news"
+      },
+      {
+        "name": "YouTube - Matthew Berman",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "enabled": true,
+        "category": "ai-youtube",
+        "profile": "tech-news"
+      },
+      {
+        "name": "YouTube - Two Minute Papers",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
+        "enabled": true,
+        "category": "ai-youtube",
+        "profile": "tech-news"
       }
     ],
     "reddit": {
@@ -179,6 +337,6 @@
     "payload_template": {
       "chat_id": "6466873727",
       "text": "测试推送成功"
-}
-   }
+    }
+  }
 }
