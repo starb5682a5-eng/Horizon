@@ -114,22 +114,22 @@
         "profile": "tech-news"
       },
       {
-        "name": "LWN.net (RSSHub)",
-        "url": "https://rsshub.rssforever.com/lwn",
+        "name": "LWN.net (官方直连)",
+        "url": "https://lwn.net/headlines/rss",
         "enabled": true,
         "category": "linux-kernel",
         "profile": "tech-news"
       },
       {
-        "name": "机器之心 (国内AI)",
-        "url": "https://rsshub.rssforever.com/jiqizhixin/daily",
+        "name": "量子位 QbitAI (国内AI)",
+        "url": "https://www.qbitai.com/feed",
         "enabled": true,
         "category": "ai-news-cn",
         "profile": "tech-news"
       },
       {
-        "name": "晚点LatePost (商业科技)",
-        "url": "https://rsshub.rssforever.com/latepost",
+        "name": "虎嗅网 (商业科技)",
+        "url": "https://rss.huxiu.com/",
         "enabled": true,
         "category": "business-tech-cn",
         "profile": "tech-news"
@@ -186,94 +186,94 @@
         "profile": "tech-news"
       },
       {
-        "name": "InfoQ 敏捷开发",
-        "url": "https://rsshub.rssforever.com/infoq/topic/agile",
+        "name": "InfoQ 敏捷开发 (官方直连)",
+        "url": "https://feed.infoq.com/agile/",
         "enabled": true,
         "category": "project-management",
         "profile": "tech-news",
         "content_extractor": "trafilatura"
       },
       {
-        "name": "Atlassian 敏捷管理博客",
-        "url": "https://www.atlassian.com/blog/feed",
+        "name": "Scrum.org 敏捷管理博客",
+        "url": "https://www.scrum.org/resources/blog/rss.xml",
         "enabled": true,
         "category": "project-management",
         "profile": "tech-news",
         "content_extractor": "trafilatura"
       },
       {
-        "name": "Runway (AI视频官方)",
-        "url": "https://rsshub.rssforever.com/twitter/user/runwayml",
+        "name": "Runway (AI视频动态)",
+        "url": "https://news.google.com/rss/search?q=Runway+AI+OR+RunwayML+when:1d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-video",
         "profile": "tech-news"
       },
       {
-        "name": "X - Andrej Karpathy",
-        "url": "https://rsshub.rssforever.com/twitter/user/karpathy",
+        "name": "Andrej Karpathy Blog",
+        "url": "https://karpathy.bearblog.dev/feed/",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
-        "name": "X - Simon Willison",
-        "url": "https://rsshub.rssforever.com/twitter/user/simonw",
+        "name": "Smol AI (X全网AI博主日报)",
+        "url": "https://buttondown.com/ainews/rss",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
-        "name": "X - 宝玉 (Dotey)",
-        "url": "https://rsshub.rssforever.com/twitter/user/dotey",
+        "name": "Anthropic News (官方动态)",
+        "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
-        "name": "X - Lilian Weng",
-        "url": "https://rsshub.rssforever.com/twitter/user/lilianweng",
+        "name": "Lilian Weng (Lil'Log)",
+        "url": "https://lilianweng.github.io/index.xml",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
-        "name": "X - Ethan Mollick",
-        "url": "https://rsshub.rssforever.com/twitter/user/emollick",
+        "name": "Ethan Mollick (One Useful Thing)",
+        "url": "https://www.oneusefulthing.org/feed",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
         "name": "YouTube - AI Explained",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "tech-news"
       },
       {
         "name": "YouTube - 技术爬爬虾",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "tech-news"
       },
       {
         "name": "YouTube - Matt Wolfe",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti34w",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "tech-news"
       },
       {
         "name": "YouTube - Matthew Berman",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "tech-news"
       },
       {
         "name": "YouTube - Two Minute Papers",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "tech-news"
@@ -311,7 +311,10 @@
           "channel": "zaihuapd",
           "enabled": true,
           "fetch_limit": 20,
-          "profile": ["tech-news", "finance-news"]
+          "profile": [
+            "tech-news",
+            "finance-news"
+          ]
         }
       ]
     }
