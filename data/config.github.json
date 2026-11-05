@@ -150,7 +150,7 @@
       },
       {
         "name": "LangChain Blog (Agent)",
-        "url": "https://blog.langchain.dev/rss/",
+        "url": "https://www.langchain.com/blog/rss.xml",
         "enabled": true,
         "category": "ai-agent",
         "profile": "tech-news",
