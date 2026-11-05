@@ -173,7 +173,7 @@
     "default_group_limit": null
   },
   "webhook": {
-    "enabled": true,
+    "enabled": false,
     "platform": "generic",
     "url_env": "TELEGRAM_WEBHOOK_URL",
     "payload_template": {
