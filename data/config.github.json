@@ -174,10 +174,7 @@
   },
       "webhook": {
     "enabled": true,
-    "url_env": "TELEGRAM_WEBHOOK_URL",
-    "payload_template": {
-      "chat_id": "6466873727",
-      "text": "测试推送"
+    "platform": "telegram"
     }
   }
     }
