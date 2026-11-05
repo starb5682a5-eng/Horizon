@@ -172,8 +172,13 @@
     "default_group": "other",
     "default_group_limit": null
   },
-      "webhook": {
+  "webhook": {
     "enabled": true,
-    "platform": "telegram"
+    "platform": "generic",
+    "url_env": "TELEGRAM_WEBHOOK_URL",
+    "payload_template": {
+      "chat_id": "6466873727",
+      "text": "测试推送成功"
     }
-  }
+  },
+    }
