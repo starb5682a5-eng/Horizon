@@ -122,21 +122,21 @@
       },
       {
         "name": "机器之心 (国内AI)",
-        "url": "https://rsshub.app/jiqizhixin/daily",
+        "url": "https://rsshub.rssforever.com/jiqizhixin/daily",
         "enabled": true,
         "category": "ai-news-cn",
         "profile": "tech-news"
       },
       {
         "name": "晚点LatePost (商业科技)",
-        "url": "https://rsshub.app/latepost",
+        "url": "https://rsshub.rssforever.com/latepost",
         "enabled": true,
         "category": "business-tech-cn",
         "profile": "tech-news"
       },
       {
         "name": "36氪 (科技创投)",
-        "url": "https://rsshub.app/36kr/newsflashes",
+        "url": "https://rsshub.rssforever.com/36kr/newsflashes",
         "enabled": true,
         "category": "tech-business-cn",
         "profile": "tech-news"
@@ -165,7 +165,7 @@
       },
       {
         "name": "华尔街见闻",
-        "url": "https://rsshub.app/wallstreetcn/news/global",
+        "url": "https://rsshub.rssforever.com/wallstreetcn/news/global",
         "enabled": true,
         "category": "finance-cn",
         "profile": "tech-news"
@@ -180,14 +180,14 @@
       },
       {
         "name": "豆瓣读书最受关注",
-        "url": "https://rsshub.app/douban/book/latest",
+        "url": "https://rsshub.rssforever.com/douban/book/latest",
         "enabled": true,
         "category": "book",
         "profile": "tech-news"
       },
       {
         "name": "InfoQ 敏捷开发",
-        "url": "https://rsshub.app/infoq/topic/agile",
+        "url": "https://rsshub.rssforever.com/infoq/topic/agile",
         "enabled": true,
         "category": "project-management",
         "profile": "tech-news",
@@ -203,42 +203,42 @@
       },
       {
         "name": "Runway (AI视频官方)",
-        "url": "https://rsshub.app/twitter/user/runwayml",
+        "url": "https://rsshub.rssforever.com/twitter/user/runwayml",
         "enabled": true,
         "category": "ai-video",
         "profile": "tech-news"
       },
       {
         "name": "X - Andrej Karpathy",
-        "url": "https://rsshub.app/twitter/user/karpathy",
+        "url": "https://rsshub.rssforever.com/twitter/user/karpathy",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
         "name": "X - Simon Willison",
-        "url": "https://rsshub.app/twitter/user/simonw",
+        "url": "https://rsshub.rssforever.com/twitter/user/simonw",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
         "name": "X - 宝玉 (Dotey)",
-        "url": "https://rsshub.app/twitter/user/dotey",
+        "url": "https://rsshub.rssforever.com/twitter/user/dotey",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
         "name": "X - Lilian Weng",
-        "url": "https://rsshub.app/twitter/user/lilianweng",
+        "url": "https://rsshub.rssforever.com/twitter/user/lilianweng",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
       },
       {
         "name": "X - Ethan Mollick",
-        "url": "https://rsshub.app/twitter/user/emollick",
+        "url": "https://rsshub.rssforever.com/twitter/user/emollick",
         "enabled": true,
         "category": "ai-x",
         "profile": "tech-news"
