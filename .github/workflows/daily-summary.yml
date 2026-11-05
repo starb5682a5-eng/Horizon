@@ -59,3 +59,19 @@ jobs:
           commit_message: "📝 Daily Summary: ${{ env.DATE }}"
           publish_branch: gh-pages
           enable_jekyll: true
+                - name: Send to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          FILE="data/summaries/horizon-${DATE}-zh.md"
+          if [ -f "$FILE" ]; then
+            echo "Sending file: $FILE"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                 -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                 --data-urlencode "text@${FILE}" > /dev/null
+            echo "Telegram message sent successfully!"
+          else
+            echo "File not found: $FILE"
+          fi
