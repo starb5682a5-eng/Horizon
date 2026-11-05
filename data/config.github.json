@@ -114,8 +114,8 @@
         "profile": "tech-news"
       },
       {
-        "name": "LWN.net",
-        "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
+        "name": "LWN.net (RSSHub)",
+        "url": "https://rsshub.rssforever.com/lwn",
         "enabled": true,
         "category": "linux-kernel",
         "profile": "tech-news"
