@@ -28,12 +28,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # 新增：启用 Cloudflare WARP 解决 GitHub Actions 机房 IP 访问 YouTube RSS 报 404 的问题
-      - name: Setup Cloudflare WARP
-        uses: Boostport/setup-cloudflare-warp@v1
-        with:
-          version: latest
-
       - name: Prepare GitHub Actions config
         run: cp data/config.github.json data/config.json
 
@@ -71,12 +65,10 @@ jobs:
           FILE="data/summaries/horizon-${DATE}-zh.md"
           if [ -f "$FILE" ]; then
             echo "Sending file: $FILE"
-            # 先发送前 3800 个字符作为预览消息（避开 Telegram 4096 字符报错限制）
             PREVIEW=$(head -c 3800 "$FILE")
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                  -d "chat_id=${TELEGRAM_CHAT_ID}" \
                  --data-urlencode "text=${PREVIEW}" > /dev/null
-            # 同时将完整 Markdown 文件作为附件发送到 Telegram，方便在手机或电脑端完整阅读
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
                  -F "chat_id=${TELEGRAM_CHAT_ID}" \
                  -F "document=@${FILE}" \
