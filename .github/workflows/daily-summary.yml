@@ -2,16 +2,14 @@ name: Daily Horizon Summary
 
 on:
   schedule:
-    # GitHub scheduled workflows use UTC. 20:00 UTC is 04:00 Asia/Shanghai;
-    # this intentionally runs early to offset the observed schedule delay.
     - cron: '0 23 * * *'
-  workflow_dispatch:      # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   daily-summary:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Needed to commit changes
+      contents: write
 
     steps:
       - name: Checkout code
@@ -30,13 +28,18 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # 新增：启用 Cloudflare WARP 解决 GitHub Actions 机房 IP 访问 YouTube RSS 报 404 的问题
+      - name: Setup Cloudflare WARP
+        uses: Boostport/setup-cloudflare-warp@v1
+        with:
+          version: latest
+
       - name: Prepare GitHub Actions config
         run: cp data/config.github.json data/config.json
 
       - name: Run Horizon
         env:
-          # Map secrets to environment variables expected by config.json
-          # Modify these based on your data/config.github.json provider settings
+          COLUMNS: "200"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -44,7 +47,6 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # HORIZON_WEBHOOK_URL: ${{ secrets.HORIZON_WEBHOOK_URL }}
         run: uv run horizon --hours 24
 
       - name: Set current date as environment variable
@@ -55,10 +57,11 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs
-          keep_files: true  # Keep existing summaries on gh-pages branch
+          keep_files: true
           commit_message: "📝 Daily Summary: ${{ env.DATE }}"
           publish_branch: gh-pages
           enable_jekyll: true
+
       - name: Send to Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -68,10 +71,17 @@ jobs:
           FILE="data/summaries/horizon-${DATE}-zh.md"
           if [ -f "$FILE" ]; then
             echo "Sending file: $FILE"
+            # 先发送前 3800 个字符作为预览消息（避开 Telegram 4096 字符报错限制）
+            PREVIEW=$(head -c 3800 "$FILE")
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                  -d "chat_id=${TELEGRAM_CHAT_ID}" \
-                 --data-urlencode "text@${FILE}" > /dev/null
-            echo "Telegram message sent successfully!"
+                 --data-urlencode "text=${PREVIEW}" > /dev/null
+            # 同时将完整 Markdown 文件作为附件发送到 Telegram，方便在手机或电脑端完整阅读
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                 -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                 -F "document=@${FILE}" \
+                 -F "caption=📅 Horizon AI 自媒体选题日报 (${DATE})" > /dev/null
+            echo "Telegram message and document sent successfully!"
           else
             echo "File not found: $FILE"
           fi
