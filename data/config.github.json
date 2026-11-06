@@ -166,35 +166,35 @@
       },
       {
         "name": "YouTube - 技术爬爬虾 (AI工具与工作流实操)",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Matt Wolfe (AI工具全网测评)",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti34w",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - AI Explained (大模型深度解读)",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Two Minute Papers (AI视觉与视频前沿)",
-        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
+        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
