@@ -43,6 +43,27 @@
     },
     "rss": [
       {
+        "name": "Reddit - r/ChatGPT (热门Prompt与趣味用法)",
+        "url": "https://rsshub.rssforever.com/reddit/subreddit/ChatGPT/hot",
+        "enabled": true,
+        "category": "ai-reddit",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "Reddit - r/OpenAI (官方动态与用户反馈)",
+        "url": "https://rsshub.rssforever.com/reddit/subreddit/OpenAI/hot",
+        "enabled": true,
+        "category": "ai-reddit",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "Reddit - r/ClaudeAI (长文本与生产力实操)",
+        "url": "https://rsshub.rssforever.com/reddit/subreddit/ClaudeAI/hot",
+        "enabled": true,
+        "category": "ai-reddit",
+        "profile": "ai-creator"
+      },
+      {
         "name": "OpenAI News (官方动态)",
         "url": "https://openai.com/news/rss.xml",
         "enabled": true,
