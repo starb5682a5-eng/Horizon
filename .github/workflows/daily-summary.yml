@@ -62,9 +62,26 @@ jobs:
           DATE=$(date +'%Y-%m-%d')
           FILE="data/summaries/horizon-${DATE}-zh.md"
           if [ -f "$FILE" ]; then
-            printf -- "---\ntitle: \"AI 自媒体选题日报 %s\"\ndate: %s\ntags:\n  - AI日报\n  - 选题素材\n  - Horizon\nstatus: 待审阅\n---\n\n" "$DATE" "$DATE" > temp.md
-            cat "$FILE" >> temp.md
-            mv temp.md "$FILE"
+            python3 -c '
+          import sys, re
+          date = sys.argv[1]
+          path = sys.argv[2]
+          text = open(path, encoding="utf-8").read()
+          body = re.sub(r"^\s*---.*?---\s*", "", text, count=1, flags=re.S)
+          yaml = f"""---
+          title: "AI 自媒体选题日报 {date}"
+          date: {date}
+          tags:
+            - AI日报
+            - 选题素材
+            - Horizon
+          status: 待审阅
+          ---
+
+          """
+          import textwrap
+          open(path, "w", encoding="utf-8").write(textwrap.dedent(yaml) + body)
+          ' "$DATE" "$FILE"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add "$FILE"
