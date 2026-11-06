@@ -56,34 +56,22 @@ jobs:
           publish_branch: gh-pages
           enable_jekyll: true
 
+      # 新增：自动加上 Obsidian 属性头并存回 main 分支，供本地直接下载
       - name: Format for Obsidian and Save to Repo
         run: |
           DATE=$(date +'%Y-%m-%d')
           FILE="data/summaries/horizon-${DATE}-zh.md"
           if [ -f "$FILE" ]; then
-            # 1. 自动在文件最顶部注入 Obsidian 专属的 YAML 属性头
-            cat <<EOF > temp.md
-          ---
-          title: "AI 自媒体选题日报 ${DATE}"
-          date: ${DATE}
-          tags:
-            - AI日报
-            - 选题素材
-            - Horizon
-          status: 待审阅
-          ---
-
-          EOF
+            printf -- "---\ntitle: \"AI 自媒体选题日报 %s\"\ndate: %s\ntags:\n  - AI日报\n  - 选题素材\n  - Horizon\nstatus: 待审阅\n---\n\n" "$DATE" "$DATE" > temp.md
             cat "$FILE" >> temp.md
             mv temp.md "$FILE"
-
-            # 2. 将添加好属性的 Markdown 文件自动保存回 GitHub 仓库主分支
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add "$FILE"
             git commit -m "📥 Archive Obsidian Daily Summary: ${DATE}" || echo "No changes to commit"
             git push origin main
           fi
+
       - name: Send to Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
