@@ -7,26 +7,21 @@
     "max_tokens": 4096,
     "throttle_sec": 1,
     "languages": [
-      "zh",
-      "en"
+      "zh"
     ],
     "analysis_concurrency": 3,
     "enrichment_concurrency": 3
   },
   "processing": {
     "profiles_dir": "profiles",
-    "default_profile": "tech-news",
+    "default_profile": "ai-creator",
     "profile_settings": {
-      "tech-news": {
-        "threshold": 5.0,
+      "ai-creator": {
+        "threshold": 7.5,
         "topic_dedup": true
       },
       "tech-blog": {
-        "threshold": 4,
-        "topic_dedup": false
-      },
-      "finance-news": {
-        "threshold": 5.0,
+        "threshold": 7.0,
         "topic_dedup": true
       }
     }
@@ -37,272 +32,179 @@
         "type": "user_events",
         "username": "karpathy",
         "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "vllm-project",
-        "repo": "vllm",
-        "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "sgl-project",
-        "repo": "sglang",
-        "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "triton-lang",
-        "repo": "triton",
-        "enabled": true,
-        "profile": "tech-news"
+        "profile": "ai-creator"
       }
     ],
     "hackernews": {
       "enabled": true,
-      "fetch_top_stories": 30,
-      "min_score": 150,
-      "profile": "tech-news"
+      "fetch_top_stories": 12,
+      "min_score": 250,
+      "profile": "ai-creator"
     },
     "rss": [
       {
-        "name": "Simon Willison",
-        "url": "https://simonwillison.net/atom/everything/",
-        "enabled": true,
-        "category": "ai-tools",
-        "profile": "tech-news"
-      },
-      {
-        "name": "vLLM Blog",
-        "url": "https://vllm.ai/blog/rss.xml",
-        "enabled": true,
-        "category": "llm-inference",
-        "profile": "tech-blog",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "Sean Goedecke",
-        "url": "https://www.seangoedecke.com/rss.xml",
-        "enabled": true,
-        "category": "software-engineering",
-        "profile": "tech-blog",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "CNBC Finance",
-        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
-        "enabled": true,
-        "category": "finance",
-        "profile": "finance-news",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "GitHub Trending - Daily",
-        "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
-        "enabled": true,
-        "category": "github-trending",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Semianalysis",
-        "url": "https://newsletter.semianalysis.com/feed",
-        "enabled": true,
-        "category": "semiconductors",
-        "profile": "tech-news"
-      },
-      {
-        "name": "LWN.net (官方直连)",
-        "url": "https://lwn.net/headlines/rss",
-        "enabled": true,
-        "category": "linux-kernel",
-        "profile": "tech-news"
-      },
-      {
-        "name": "量子位 QbitAI (国内AI)",
-        "url": "https://www.qbitai.com/feed",
-        "enabled": true,
-        "category": "ai-news-cn",
-        "profile": "tech-news"
-      },
-      {
-        "name": "虎嗅网 (商业科技)",
-        "url": "https://rss.huxiu.com/",
-        "enabled": true,
-        "category": "business-tech-cn",
-        "profile": "tech-news"
-      },
-      {
-        "name": "36氪 (科技创投)",
-        "url": "https://rsshub.rssforever.com/36kr/newsflashes",
-        "enabled": true,
-        "category": "tech-business-cn",
-        "profile": "tech-news"
-      },
-      {
-        "name": "OpenAI News",
+        "name": "OpenAI News (官方动态)",
         "url": "https://openai.com/news/rss.xml",
         "enabled": true,
         "category": "ai-official",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       },
       {
-        "name": "LangChain Blog (Agent)",
+        "name": "Anthropic News (Claude官方动态)",
+        "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
+        "enabled": true,
+        "category": "ai-official",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "Smol AI (全网AI社群与X热点日报)",
+        "url": "https://buttondown.com/ainews/rss",
+        "enabled": true,
+        "category": "ai-digest",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "TLDR AI (全球AI新工具与产品速递)",
+        "url": "https://bullrich.dev/tldr-rss/ai.rss",
+        "enabled": true,
+        "category": "ai-digest",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "量子位 QbitAI (国内AI前沿与应用)",
+        "url": "https://www.qbitai.com/feed",
+        "enabled": true,
+        "category": "ai-news-cn",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "少数派 sspai (效率工具与数字工作流)",
+        "url": "https://sspai.com/feed",
+        "enabled": true,
+        "category": "efficiency-tools",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "虎嗅网 (商业科技与AI创投)",
+        "url": "https://rss.huxiu.com/",
+        "enabled": true,
+        "category": "business-tech-cn",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "36氪 (AI与科技快讯)",
+        "url": "https://36kr.com/feed",
+        "enabled": true,
+        "category": "tech-business-cn",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "LangChain Blog (AI Agent与工作流)",
         "url": "https://www.langchain.com/blog/rss.xml",
         "enabled": true,
         "category": "ai-agent",
-        "profile": "tech-news",
+        "profile": "ai-creator",
         "content_extractor": "trafilatura"
       },
       {
-        "name": "Wall Street Journal",
-        "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+        "name": "Simon Willison (AI工具与提示词实操)",
+        "url": "https://simonwillison.net/atom/everything/",
         "enabled": true,
-        "category": "finance",
-        "profile": "tech-news"
+        "category": "ai-tools",
+        "profile": "ai-creator"
       },
       {
-        "name": "华尔街见闻",
-        "url": "https://rsshub.rssforever.com/wallstreetcn/news/global",
+        "name": "Ethan Mollick (One Useful Thing - AI实操洞察)",
+        "url": "https://www.oneusefulthing.org/feed",
         "enabled": true,
-        "category": "finance-cn",
-        "profile": "tech-news"
+        "category": "ai-blog",
+        "profile": "tech-blog"
       },
       {
-        "name": "BBC Learning English",
+        "name": "Andrej Karpathy Blog (AI科普与深度思考)",
+        "url": "https://karpathy.bearblog.dev/feed/",
+        "enabled": true,
+        "category": "ai-blog",
+        "profile": "tech-blog"
+      },
+      {
+        "name": "The Batch (吴恩达 DeepLearning.AI 周刊)",
+        "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_the_batch.xml",
+        "enabled": true,
+        "category": "ai-blog",
+        "profile": "tech-blog"
+      },
+      {
+        "name": "Runway & AI视频动态 (短剧与生成式视频)",
+        "url": "https://news.google.com/rss/search?q=RunwayML+OR+Sora+OR+Kling+AI+OR+Midjourney+when:1d&hl=en-US&gl=US&ceid=US:en",
+        "enabled": true,
+        "category": "ai-video",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "GitHub Trending (每日热门开源AI工具)",
+        "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
+        "enabled": true,
+        "category": "github-trending",
+        "profile": "ai-creator"
+      },
+      {
+        "name": "BBC Learning English (英语学习素材)",
         "url": "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
         "enabled": true,
         "category": "english-learning",
-        "profile": "tech-news",
+        "profile": "ai-creator",
         "content_extractor": "trafilatura"
       },
       {
-        "name": "豆瓣读书最受关注",
-        "url": "https://rsshub.rssforever.com/douban/book/latest",
-        "enabled": true,
-        "category": "book",
-        "profile": "tech-news"
-      },
-      {
-        "name": "InfoQ 敏捷开发 (官方直连)",
-        "url": "https://feed.infoq.com/agile/",
-        "enabled": true,
-        "category": "project-management",
-        "profile": "tech-news",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "Scrum.org 敏捷管理博客",
+        "name": "Scrum.org (敏捷与个人项目管理)",
         "url": "https://www.scrum.org/resources/blog/rss.xml",
         "enabled": true,
         "category": "project-management",
-        "profile": "tech-news",
+        "profile": "tech-blog",
         "content_extractor": "trafilatura"
       },
       {
-        "name": "Runway (AI视频动态)",
-        "url": "https://news.google.com/rss/search?q=Runway+AI+OR+RunwayML+when:1d&hl=en-US&gl=US&ceid=US:en",
-        "enabled": true,
-        "category": "ai-video",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Andrej Karpathy Blog",
-        "url": "https://karpathy.bearblog.dev/feed/",
-        "enabled": true,
-        "category": "ai-x",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Smol AI (X全网AI博主日报)",
-        "url": "https://buttondown.com/ainews/rss",
-        "enabled": true,
-        "category": "ai-x",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Anthropic News (官方动态)",
-        "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
-        "enabled": true,
-        "category": "ai-x",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Lilian Weng (Lil'Log)",
-        "url": "https://lilianweng.github.io/index.xml",
-        "enabled": true,
-        "category": "ai-x",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Ethan Mollick (One Useful Thing)",
-        "url": "https://www.oneusefulthing.org/feed",
-        "enabled": true,
-        "category": "ai-x",
-        "profile": "tech-news"
-      },
-      {
-        "name": "YouTube - AI Explained",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "name": "YouTube - 技术爬爬虾 (AI工具与工作流实操)",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
         "enabled": true,
         "category": "ai-youtube",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       },
       {
-        "name": "YouTube - 技术爬爬虾",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "name": "YouTube - Matt Wolfe (AI工具全网测评)",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti34w",
         "enabled": true,
         "category": "ai-youtube",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       },
       {
-        "name": "YouTube - Matt Wolfe",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
+        "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCn8ujwUJnFT2jkayMDl-mgQ",
         "enabled": true,
         "category": "ai-youtube",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       },
       {
-        "name": "YouTube - Matthew Berman",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "name": "YouTube - AI Explained (大模型深度解读)",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
         "enabled": true,
         "category": "ai-youtube",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       },
       {
-        "name": "YouTube - Two Minute Papers",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg",
+        "name": "YouTube - Two Minute Papers (AI视觉与视频前沿)",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
         "enabled": true,
         "category": "ai-youtube",
-        "profile": "tech-news"
+        "profile": "ai-creator"
       }
     ],
     "reddit": {
       "enabled": false,
-      "subreddits": [
-        {
-          "subreddit": "MachineLearning",
-          "enabled": true,
-          "sort": "hot",
-          "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60,
-          "profile": "tech-news"
-        },
-        {
-          "subreddit": "LocalLLaMA",
-          "enabled": true,
-          "sort": "hot",
-          "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60,
-          "profile": "tech-news"
-        }
-      ],
+      "subreddits": [],
       "users": [],
-      "fetch_comments": 10
+      "fetch_comments": 5
     },
     "telegram": {
       "enabled": true,
@@ -310,10 +212,9 @@
         {
           "channel": "zaihuapd",
           "enabled": true,
-          "fetch_limit": 20,
+          "fetch_limit": 10,
           "profile": [
-            "tech-news",
-            "finance-news"
+            "ai-creator"
           ]
         }
       ]
@@ -323,11 +224,10 @@
     "time_window_hours": 24
   },
   "digest": {
-    "max_items": null,
+    "max_items": 15,
     "profile_order": [
-      "tech-news",
-      "tech-blog",
-      "finance-news"
+      "ai-creator",
+      "tech-blog"
     ],
     "category_groups": {},
     "default_group": "other",
