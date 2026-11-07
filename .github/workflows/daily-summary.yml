@@ -46,6 +46,7 @@ jobs:
       - name: Set current date as environment variable
         run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
+      # 日报产物仅发布到独立的 gh-pages 分支，绝不触碰和污染 main 代码分支
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -55,39 +56,6 @@ jobs:
           commit_message: "📝 Daily Summary: ${{ env.DATE }}"
           publish_branch: gh-pages
           enable_jekyll: true
-
-      # 新增：自动加上 Obsidian 属性头并存回 main 分支，供本地直接下载
-      - name: Format for Obsidian and Save to Repo
-        run: |
-          DATE=$(date +'%Y-%m-%d')
-          FILE="data/summaries/horizon-${DATE}-zh.md"
-          if [ -f "$FILE" ]; then
-            python3 -c '
-          import sys, re
-          date = sys.argv[1]
-          path = sys.argv[2]
-          text = open(path, encoding="utf-8").read()
-          body = re.sub(r"^\s*---.*?---\s*", "", text, count=1, flags=re.S)
-          yaml = f"""---
-          title: "AI 自媒体选题日报 {date}"
-          date: {date}
-          tags:
-            - AI日报
-            - 选题素材
-            - Horizon
-          status: 待审阅
-          ---
-
-          """
-          import textwrap
-          open(path, "w", encoding="utf-8").write(textwrap.dedent(yaml) + body)
-          ' "$DATE" "$FILE"
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add "$FILE"
-            git commit -m "📥 Archive Obsidian Daily Summary: ${DATE}" || echo "No changes to commit"
-            git push origin main
-          fi
 
       - name: Send to Telegram
         env:
