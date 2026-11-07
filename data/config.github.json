@@ -17,7 +17,7 @@
     "default_profile": "ai-creator",
     "profile_settings": {
       "ai-creator": {
-        "threshold": 7.5,
+        "threshold": 7.0,
         "topic_dedup": true
       },
       "tech-blog": {
@@ -44,21 +44,21 @@
     "rss": [
       {
         "name": "Reddit - r/ChatGPT (热门Prompt与趣味用法)",
-        "url": "https://rsshub.rssforever.com/reddit/subreddit/ChatGPT/hot",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ChatGPT+when:2d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
       },
       {
         "name": "Reddit - r/OpenAI (官方动态与用户反馈)",
-        "url": "https://rsshub.rssforever.com/reddit/subreddit/OpenAI/hot",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/OpenAI+when:2d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
       },
       {
         "name": "Reddit - r/ClaudeAI (长文本与生产力实操)",
-        "url": "https://rsshub.rssforever.com/reddit/subreddit/ClaudeAI/hot",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ClaudeAI+when:2d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
@@ -114,7 +114,7 @@
       },
       {
         "name": "36氪 (AI与科技快讯)",
-        "url": "https://36kr.com/feed",
+        "url": "https://rsshub.rssforever.com/36kr/newsflashes",
         "enabled": true,
         "category": "tech-business-cn",
         "profile": "ai-creator"
@@ -194,14 +194,14 @@
       },
       {
         "name": "YouTube - Matt Wolfe (AI工具全网测评)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
+        "url": "https://news.google.com/rss/search?q=site:youtube.com+%22Matt+Wolfe%22+AI+when:3d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "url": "https://news.google.com/rss/search?q=site:youtube.com+%22Matthew+Berman%22+AI+when:3d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
