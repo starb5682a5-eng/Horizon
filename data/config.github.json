@@ -44,21 +44,21 @@
     "rss": [
       {
         "name": "Reddit - r/ChatGPT (热门Prompt与趣味用法)",
-        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ChatGPT+when:2d&hl=en-US&gl=US&ceid=US:en",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ChatGPT+when:1d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
       },
       {
         "name": "Reddit - r/OpenAI (官方动态与用户反馈)",
-        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/OpenAI+when:2d&hl=en-US&gl=US&ceid=US:en",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/OpenAI+when:1d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
       },
       {
         "name": "Reddit - r/ClaudeAI (长文本与生产力实操)",
-        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ClaudeAI+when:2d&hl=en-US&gl=US&ceid=US:en",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/ClaudeAI+when:1d&hl=en-US&gl=US&ceid=US:en",
         "enabled": true,
         "category": "ai-reddit",
         "profile": "ai-creator"
@@ -194,14 +194,14 @@
       },
       {
         "name": "YouTube - Matt Wolfe (AI工具全网测评)",
-        "url": "https://news.google.com/rss/search?q=site:youtube.com+%22Matt+Wolfe%22+AI+when:3d&hl=en-US&gl=US&ceid=US:en",
+        "url": "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
-        "url": "https://news.google.com/rss/search?q=site:youtube.com+%22Matthew+Berman%22+AI+when:3d&hl=en-US&gl=US&ceid=US:en",
+        "url": "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
