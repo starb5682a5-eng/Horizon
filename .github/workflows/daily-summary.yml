@@ -8,6 +8,8 @@ on:
 jobs:
   daily-summary:
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
     permissions:
       contents: write
 
@@ -45,6 +47,126 @@ jobs:
 
       - name: Set current date as environment variable
         run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Consolidate Same-AI & Deduplicate Cross-Day
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REPO: ${{ github.repository }}
+        run: |
+          uv run python - << 'PYEOF'
+          import os, re, shutil, datetime, urllib.request, httpx
+
+          bj_now = datetime.datetime.now()
+          utc_now = datetime.datetime.now(datetime.timezone.utc)
+          date_str = bj_now.strftime("%Y-%m-%d")
+          utc_date_str = utc_now.strftime("%Y-%m-%d")
+
+          summary_path = f"data/summaries/horizon-{date_str}-zh.md"
+          pages_path = f"docs/_posts/{date_str}-summary-zh.md"
+
+          # 1. 双层保险：若 Horizon 底层用 UTC 日期命名了文件，自动重命名校准为北京时间今日日期
+          if not os.path.exists(summary_path) and os.path.exists(f"data/summaries/horizon-{utc_date_str}-zh.md"):
+              shutil.move(f"data/summaries/horizon-{utc_date_str}-zh.md", summary_path)
+              print(f"Renamed summary file from UTC ({utc_date_str}) to Beijing date ({date_str})")
+          if not os.path.exists(pages_path) and os.path.exists(f"docs/_posts/{utc_date_str}-summary-zh.md"):
+              shutil.move(f"docs/_posts/{utc_date_str}-summary-zh.md", pages_path)
+              print(f"Renamed gh-pages post from UTC ({utc_date_str}) to Beijing date ({date_str})")
+
+          if not os.path.exists(summary_path):
+              print(f"No summary file found at {summary_path}, skipping consolidation.")
+              raise SystemExit(0)
+
+          raw_md = open(summary_path, encoding="utf-8").read()
+          raw_md = re.sub(r"# Horizon 每日速递 - \d{4}-\d{2}-\d{2}", f"# Horizon 每日速递 - {date_str}", raw_md)
+
+          # 先将校准好北京日期的内容写回，确保哪怕跳过 AI 合并，日期也 100% 正确
+          open(summary_path, "w", encoding="utf-8").write(raw_md)
+          if os.path.exists(pages_path):
+              p_txt = open(pages_path, encoding="utf-8").read()
+              p_txt = re.sub(r"\d{4}-\d{2}-\d{2}", date_str, p_txt)
+              open(pages_path, "w", encoding="utf-8").write(p_txt)
+
+          # 2. 从 gh-pages 分支拉取前 2 天已发布的日报标题，用于比对“是否为同一具体事件”
+          repo = os.environ.get("REPO", "starb5682a5-eng/Horizon")
+          prev_reports = []
+          for d in [1, 2]:
+              p_date = (bj_now - datetime.timedelta(days=d)).strftime("%Y-%m-%d")
+              if date_str == "2026-11-08" and p_date == "2026-11-07":
+                  continue
+              url = f"https://raw.githubusercontent.com/{repo}/gh-pages/_posts/{p_date}-summary-zh.md"
+              try:
+                  req = urllib.request.urlopen(url, timeout=10)
+                  txt = req.read().decode("utf-8", errors="ignore")
+                  titles = re.findall(r"###\s+\[.*?\]\(.*?\).*", txt)
+                  if titles:
+                      prev_reports.append(f"【{p_date} 已发布标题】:\n" + "\n".join(titles[:20]))
+              except Exception:
+                  pass
+          prev_context = "\n\n".join(prev_reports) if prev_reports else "无前两日历史记录"
+
+          # 3. 调用 DeepSeek 执行【跨天同事件去重（保留同AI新内容）】与【同日同AI归纳合并为1条】
+          prompt = f"""你是一位服务于小红书、微信公众号和 YouTube 创作者的资深 AI 自媒体主编。请对下面这份今日生成的 Horizon 原始日报进行【跨天同事件去重】与【同日同 AI 归纳合并】，严格执行以下 4 条规则：
+
+          规则 1（跨天去重——只剔除“前两日已报过的同一具体事件”，100%保留“同 AI 的不同新内容”）：
+          - 对照下方【前两日已发布记录】，只有当今日某条资讯与前两日记录讲的是【同一个具体事件/同一功能发布/同一具体案例】（例如前一天已报过某模型发布，今天仅是别的博主对该同一模型的重复转述）时，才将其剔除。
+          - 【核心保护】：如果前两日有关于某个 AI（如 Gemini、Claude、ChatGPT、DeepSeek 等）的 A 消息，而今天出现了关于该 AI 的 B 消息——只要 B 消息是不同的新功能、不同的实操工作流、不同的应用场景或新对比测评，【必须 100% 保留】，绝不能因为前两天出现过该 AI 的名字就剔除！
+          - 【同日重跑保护】：如果发现今日原始日报的绝大多数词条与历史记录完全重合（说明是同一天内手动重复运行），则跳过跨天剔除，直接执行规则 2。
+
+          规则 2（同日同 AI 归纳合并——同一份日报内，每个核心 AI 只出现 1 条综合消息）：
+          - 检查经过规则 1 后的今日资讯，如果在今天同一份日报内，有多条资讯都围绕同一个核心 AI 产品/品牌（例如多条围绕 Claude/Claude Code、多条围绕 ChatGPT/OpenAI、或多条围绕 Gemini/Google AI）：
+          - 在今日日报的目录和正文中，每个核心 AI 主体【最多只保留 1 个主词条】！
+          - 请挑选该 AI 今天最热、信息最扎实、对自媒体最有选题价值的 1 条作为主标题和正文主段落；
+          - 如果该 AI 今天还有其他具备实质干货的不同新动态，请将其精炼成 1~2 句话的子要点，统一放在该词条正文下方的「📌 **同日相关动态速览**：」列表中，并【务必保留每一条原有的 Markdown 链接 `[标题](url)`】；
+          - 如果某条附带动态正文中明确写着“目前仅有标题、无具体实现细节待核实”且无实质干货，则直接丢弃不予合并。
+
+          规则 3（赋能自媒体选题角度）：
+          - 当你把同一个 AI 的多条动态合并为 1 条时，请在该词条的「**「内容角度」**」中，不仅给出主打事件的拆解角度，还顺带给出一句【组合拳选题建议】（例如如何把今天该 AI 的这几个新动作串联成一篇高收藏率的盘点/实操图文或短视频脚本）。
+
+          规则 4（严格保持原 Markdown 排版与目录锚点连续）：
+          - 顶部主标题必须为：`# Horizon 每日速递 - {date_str}`
+          - 导语格式：`> 从原始资讯中去重并归纳合并出 X 条高价值核心情报。`（X 为合并后的最终词条数）
+          - 重新从 1 开始连续编号顶部目录（`1. [标题](#item-ai-creator-1) ⭐️ 分数`）与正文锚点（`<a id="item-ai-creator-1"></a>`），严格保留原有的星级评分、来源行、`### [标题](链接)`、`**「为何值得关注」**`、`**「内容角度」**` 和 `**标签**:` 格式。
+          - 直接输出整理后的纯 Markdown 文本，不要用代码块包裹。
+
+          【前两日已发布记录（仅供比对是否为同一具体事件）】：
+          {prev_context}
+
+          【今日原始日报全文（待去重与合并）】：
+          {raw_md}
+          """
+
+          api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+          if api_key:
+              try:
+                  resp = httpx.post(
+                      "https://api.deepseek.com/chat/completions",
+                      headers={"Authorization": f"Bearer {api_key}"},
+                      json={
+                          "model": "deepseek-chat",
+                          "messages": [{"role": "user", "content": prompt}],
+                          "temperature": 0.2,
+                          "max_tokens": 4096
+                      },
+                      timeout=180.0
+                  )
+                  resp.raise_for_status()
+                  new_md = resp.json()["choices"][0]["message"]["content"].strip()
+                  new_md = re.sub(r"^```(?:markdown)?\s*", "", new_md)
+                  new_md = re.sub(r"\s*```$", "", new_md)
+                  if "# Horizon" in new_md and "###" in new_md:
+                      open(summary_path, "w", encoding="utf-8").write(new_md + "\n")
+                      os.makedirs("docs/_posts", exist_ok=True)
+                      header = f"---\nlayout: default\ntitle: \"Horizon Summary: {date_str} (ZH)\"\ndate: {date_str}\nlang: zh\n---\n\n"
+                      if os.path.exists(pages_path):
+                          pages_txt = open(pages_path, encoding="utf-8").read()
+                          m = re.match(r"^(\s*---[\s\S]*?---\s*)", pages_txt)
+                          if m:
+                              header = re.sub(r"\d{4}-\d{2}-\d{2}", date_str, m.group(1))
+                      open(pages_path, "w", encoding="utf-8").write(header + new_md + "\n")
+                      print("Successfully consolidated same-AI items and deduplicated cross-day topics!")
+              except Exception as e:
+                  print(f"Consolidation skipped due to error: {e}")
+          PYEOF
 
       # 日报产物仅发布到独立的 gh-pages 分支，绝不触碰和污染 main 代码分支
       - name: Deploy to GitHub Pages
