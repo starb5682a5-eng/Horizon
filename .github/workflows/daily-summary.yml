@@ -38,172 +38,9 @@ jobs:
       - name: Prepare GitHub Actions config
         run: cp data/config.github.json data/config.json
 
-      - name: Install Pre-Scoring Budget & 7-Day URL Filter Hook
-        run: |
-          SITE_PKG=$(uv run python -c "import site; print(site.getsitepackages()[0])")
-          cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
-          import os, sys
-
-          if os.environ.get("HORIZON_ENABLE_PREFILTER") == "1":
-              cwd = os.getcwd()
-              if cwd not in sys.path:
-                  sys.path.insert(0, cwd)
-
-              import re, json, datetime, urllib.request, urllib.parse
-              from collections import defaultdict
-
-              def _norm_url(u):
-                  u = (u or "").strip()
-                  try:
-                      p = urllib.parse.urlsplit(u)
-                      q = [(k, v) for k, v in urllib.parse.parse_qsl(p.query)
-                           if not k.lower().startswith("utm_") and k.lower() not in ("oc", "ref", "from", "spm", "feature", "si")]
-                      return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urllib.parse.urlencode(q), ""))
-                  except Exception:
-                      return u
-
-              def _load_7day_published_urls():
-                  repo = os.environ.get("REPO", "starb5682a5-eng/Horizon")
-                  gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
-                  now = datetime.datetime.now()
-                  seen = set()
-                  loaded = 0
-                  for d in range(1, 8):
-                      p_date = (now - datetime.timedelta(days=d)).strftime("%Y-%m-%d")
-                      url = f"https://raw.githubusercontent.com/{repo}/gh-pages/_posts/{p_date}-summary-zh.md"
-                      headers = {"User-Agent": "Horizon-Prefilter"}
-                      if gh_token:
-                          headers["Authorization"] = f"token {gh_token}"
-                      try:
-                          req = urllib.request.Request(url, headers=headers)
-                          with urllib.request.urlopen(req, timeout=8) as resp:
-                              txt = resp.read().decode("utf-8", errors="ignore")
-                              if "### [" in txt:
-                                  for u_m in re.findall(r"\]\((https?://[^\s\)]+)\)", txt):
-                                      seen.add(_norm_url(u_m))
-                                  loaded += 1
-                      except Exception:
-                          pass
-                  print(f"🔍 [7-Day History URL Loader] Loaded {loaded} reports, {len(seen)} unique URLs.", flush=True)
-                  return seen
-
-              EN_CORE_RE = re.compile(
-                  r"(?<![a-zA-Z0-9])(?:ai|gpt|chatgpt|claude|openai|anthropic|gemini|deepseek|kimi|qwen|"
-                  r"llama|mcp|agent[s]?|workflow[s]?|prompt[s]?|cursor|windsurf|v0|bolt|lovable|copilot|"
-                  r"n8n|dify|coze|obsidian|notion|runway(?:ml)?|sora|kling|vidu|veo|midjourney|flux|"
-                  r"davinci|tts|llm[s]?|rag)(?![a-zA-Z0-9])", re.I
-              )
-              ZH_CORE_KW = ["智能体", "工作流", "提示词", "大模型", "千问", "豆包", "扣子", "知识库", "笔记", "可灵", "即梦", "视频生成", "短剧", "动画", "动漫", "漫剧", "分镜", "数字人", "配音", "语音", "剪辑", "达芬奇", "剪映", "字幕", "脚本", "生图", "绘图", "编程"]
-              EN_ACTION_RE = re.compile(
-                  r"(?<![a-zA-Z0-9])(?:release[sd]?|releasing|launch(?:es|ed|ing)?|announc(?:es|ed|ing)|"
-                  r"introduce[sd]?|introducing|update[sd]?|updating|open-?source[ds]?|github|guide[s]?|"
-                  r"tutorial[s]?|how-to|build(?:s|ing)?|built|automat(?:es|ed|ing|ion)|benchmark[s]?|"
-                  r"full-stack|template[s]?|step-by-step|v\d+(?:\.\d+)+|\d+\.\d+)(?![a-zA-Z0-9])", re.I
-              )
-              ZH_ACTION_KW = ["发布", "上线", "更新", "开源", "免费", "实测", "测评", "教程", "指南", "拆解", "玩法", "技巧", "提效", "自动化", "神器", "全流程", "零代码", "一人公司", "自媒体"]
-              EN_LEARN_RE = re.compile(r"(?<![a-zA-Z0-9])(?:english|vocabulary|grammar|speaking|listening|pronunciation|idiom[s]?|phrase[s]?|expression[s]?|conversation|bbc|podcast|learn(?:ing)?)(?![a-zA-Z0-9])", re.I)
-              PM_AGILE_RE = re.compile(r"(?<![a-zA-Z0-9])(?:scrum|agile|sprint[s]?|kanban|backlog|retrospective|product owner|scrum master|project management|stakeholder[s]?|delivery|coaching)(?![a-zA-Z0-9])", re.I)
-              TITLE_NOISE_RE = re.compile(r"(?<![a-zA-Z0-9])(?:is down for|down for everyone|login error|payment declined|account suspended|what is your favou?rite|whats your favou?rite|am i the only one|megathread|daily discussion|weekly thread|shitpost|nsfw)(?![a-zA-Z0-9])", re.I)
-              ZH_NOISE_KW = ["跌停", "涨停", "a股", "港股", "楼市", "房地产", "买房", "白酒", "茅台", "国足", "男足", "演唱会"]
-
-              TIER1_CATS = {"ai-official", "ai-agent", "ai-tools", "ai-blog", "ai-youtube"}
-              TIER2_CATS = {"ai-digest", "ai-news-cn", "efficiency-tools", "ai-video", "github-trending"}
-              TIER3_CATS = {"ai-reddit", "tech-business-cn", "business-tech-cn", "english-learning", "project-management"}
-
-              def _get_tier(item):
-                  meta = getattr(item, "metadata", None) or {}
-                  cat = str(meta.get("category") or "").strip()
-                  stype = str(getattr(item, "source_type", "") or "").lower()
-                  fname = str(meta.get("feed_name") or stype or "unknown").strip()
-                  if cat in TIER1_CATS:
-                      return 1, cat, fname
-                  if cat in TIER2_CATS or stype in ("hackernews", "telegram", "hn", "github") or "github" in stype:
-                      return 2, cat, fname
-                  if cat in TIER3_CATS:
-                      return 3, cat, fname
-                  return 2, cat, fname
-
-              def _score(item, cat, idx):
-                  title = str(getattr(item, "title", "") or "")
-                  content = str(getattr(item, "content", "") or "")
-                  if title.endswith(" - Reddit"):
-                      try:
-                          item.title = re.sub(r"\s*-\s*Reddit\s*$", "", title).strip()
-                          title = item.title
-                      except Exception:
-                          pass
-                  if TITLE_NOISE_RE.search(title) or any(k in f"{title} {content[:150]}".lower() for k in ZH_NOISE_KW):
-                      return -15.0
-                  c_hits = len(set(m.lower() for m in EN_CORE_RE.findall(title))) * 4.0 + len(set(m.lower() for m in EN_CORE_RE.findall(content[:600]))) * 2.0
-                  for kw in ZH_CORE_KW:
-                      c_hits += 4.0 if kw in title else (2.0 if kw in content[:600] else 0.0)
-                  if cat == "english-learning":
-                      c_hits += len(set(m.lower() for m in EN_LEARN_RE.findall(f"{title} {content[:400]}"))) * 3.0
-                  elif cat == "project-management":
-                      c_hits += len(set(m.lower() for m in PM_AGILE_RE.findall(f"{title} {content[:400]}"))) * 3.0
-                  a_hits = len(set(m.lower() for m in EN_ACTION_RE.findall(title))) * 3.0 + len(set(m.lower() for m in EN_ACTION_RE.findall(content[:600]))) * 1.5
-                  for kw in ZH_ACTION_KW:
-                      a_hits += 3.0 if kw in title else (1.5 if kw in content[:600] else 0.0)
-                  sc = c_hits + a_hits
-                  if sc > 0:
-                      clean_c = re.sub(r"<[^>]+>", "", content).strip()
-                      if len(clean_c) > 150 and clean_c != title.strip():
-                          sc += 1.5
-                      meta = getattr(item, "metadata", None) or {}
-                      if isinstance(meta.get("score"), (int, float)) and meta.get("score") >= 150:
-                          sc += 2.0
-                  return sc
-
-              from src.ai.analyzer import ContentAnalyzer
-              _orig_analyze_batch = ContentAnalyzer.analyze_batch
-
-              async def _budgeted_analyze_batch(self, items, *args, **kwargs):
-                  if not isinstance(items, list) or not items or getattr(self, "_in_budget_hook", False):
-                      return await _orig_analyze_batch(self, items, *args, **kwargs)
-                  self._in_budget_hook = True
-                  try:
-                      raw_count = len(items)
-                      seen_urls = _load_7day_published_urls()
-                      pool = [it for it in items if _norm_url(str(getattr(it, "url", "") or "")) not in seen_urls]
-                      dup_dropped = raw_count - len(pool)
-
-                      buckets = defaultdict(list)
-                      for idx, it in enumerate(pool):
-                          t, cat, fname = _get_tier(it)
-                          buckets[(t, cat, fname)].append((_score(it, cat, idx), idx, it))
-
-                      t_Step = {1: [], 2: [], 3: []}
-                      print("\n📊 === [Pre-Scoring Source Audit] ===", flush=True)
-                      for (t, cat, fname), elist in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][2])):
-                          elist.sort(key=lambda x: (x[0], -x[1]), reverse=True)
-                          min_sc, cap = (0.0, 5) if cat == "ai-official" else ((6.0, 4) if cat == "ai-reddit" else ((4.0, 4) if t == 3 else (2.0, 5)))
-                          qual = [x for x in elist if x[0] >= min_sc]
-                          kept = qual[:cap]
-                          t_Step[t].extend(kept)
-                          print(f" - [Tier {t} | {cat or 'native'}] {fname}: 24h_new={len(elist)} | low_rel_dropped={len(elist)-len(qual)} -> kept={len(kept)}", flush=True)
-
-                      QUOTAS = {1: 28, 2: 18, 3: 14}
-                      final_items, carry = [], 0
-                      for t in (1, 2, 3):
-                          t_Step[t].sort(key=lambda x: (x[0], -x[1]), reverse=True)
-                          allow = QUOTAS[t] + carry
-                          taken = [x[2] for x in t_Step[t][:allow]]
-                          final_items.extend(taken)
-                          carry = max(0, allow - len(taken))
-
-                      items[:] = final_items[:60]
-                      print(f"🎯 [Global Pre-Scoring Budget] Raw 24h={raw_count} | 7-Day Dup Dropped={dup_dropped} -> Sent to DeepSeek={len(items)}/60\n", flush=True)
-                      return await _orig_analyze_batch(self, items, *args, **kwargs)
-                  finally:
-                      self._in_budget_hook = False
-
-              ContentAnalyzer.analyze_batch = _budgeted_analyze_batch
-          EOF
-          uv run python -c 'import os; os.environ["HORIZON_ENABLE_PREFILTER"]="1"; import sitecustomize; from src.ai.analyzer import ContentAnalyzer; assert ContentAnalyzer.analyze_batch.__name__ == "_budgeted_analyze_batch"; print("✅ Hook verified active!")'
-
+      # 步骤 1：直接运行 Horizon 官方主流程（去除所有不稳定钩子，确保 100% 不会发生断言崩溃）
       - name: Run Horizon
         env:
-          HORIZON_ENABLE_PREFILTER: "1"
           REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COLUMNS: "200"
@@ -218,8 +55,11 @@ jobs:
           set -o pipefail
           uv run horizon --hours 24 | tee data/horizon_run.log
 
-      - name: Consolidate, Verify & Prepare Outputs
-        id: verify_report
+      - name: Set current date as environment variable
+        run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      # 步骤 2：跨天同事件语义去重 + 预算精简合并 + 7 项结构完整性校验
+      - name: Consolidate Same-AI & Deduplicate Cross-Day
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           REPO: ${{ github.repository }}
@@ -235,11 +75,9 @@ jobs:
           date_str = bj_now.strftime("%Y-%m-%d")
           utc_date_str = utc_now.strftime("%Y-%m-%d")
 
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envf:
-              envf.write(f"DATE={date_str}\n")
-
           summary_path = f"data/summaries/horizon-{date_str}-zh.md"
           pages_path = f"docs/_posts/{date_str}-summary-zh.md"
+          manifest_path = f"data/summaries/must_keep_urls-{date_str}.json"
 
           if not os.path.exists(summary_path) and os.path.exists(f"data/summaries/horizon-{utc_date_str}-zh.md"):
               shutil.move(f"data/summaries/horizon-{utc_date_str}-zh.md", summary_path)
@@ -333,7 +171,7 @@ jobs:
                       if m_t:
                           h_in, h_out = int(m_t.group(1)), int(m_t.group(2))
                   cost = ((h_in + in_t) * 2.0 + (h_out + out_t) * 8.0) / 1_000_000
-                  print(f"💰 [Daily Total Cost] Horizon(in={h_in}, out={h_out}) + Merge(in={in_t}, out={out_t}) | Est. Cost ≈ ¥{cost:.4f} RMB")
+                  print(f"💰 [Daily Total Cost Ledger] Horizon(in={h_in}, out={h_out}) + Consolidation(in={in_t}, out={out_t}) => Total In={h_in+in_t}, Total Out={h_out+out_t} | Est. Cost ≈ ¥{cost:.4f} RMB")
 
                   if rj["choices"][0].get("finish_reason") == "stop":
                       new_md = re.sub(r"\s*```$", "", re.sub(r"^```(?:markdown)?\s*", "", rj["choices"][0]["message"]["content"].strip()))
@@ -355,6 +193,7 @@ jobs:
           h3_cnt = len(re.findall(r"^###\s+\[.*?\]\(https?://", final_txt, flags=re.M))
           is_ready = (f"# Horizon 每日速递 - {date_str}" in final_txt and h3_cnt >= 1)
           print(f"✅ Final Report Ready={is_ready} ({h3_cnt} items)")
+          json.dump({"primary_urls": list(primary_urls)}, open(manifest_path, "w", encoding="utf-8"))
           set_ready(is_ready)
           PYEOF
 
@@ -401,4 +240,4 @@ jobs:
         run: |
           DATE=$(date +'%Y-%m-%d')
           MSG="⚠️ Horizon 日报状态提醒 (${DATE})%0A运行状态: ${JOB_STATUS}%0A日报就绪: ${READY_FLAG}%0A说明: 今日无新增资讯或工作流异常，请查看 GitHub Actions 日志。"
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null || true        
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null || true
