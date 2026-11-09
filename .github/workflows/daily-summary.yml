@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
     permissions:
       contents: write
 
@@ -37,44 +38,6 @@ jobs:
       - name: Prepare GitHub Actions config
         run: cp data/config.github.json data/config.json
 
-      # 步骤 1：只读诊断（不再因为 deepseek-chat 别名不在 /models 列表中而报错退出）
-      - name: Read-Only Diagnostics & Entrypoint Verification
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          uv run python - << 'PYEOF'
-          import os, json, glob, inspect, httpx
-
-          cfg = json.load(open("data/config.json", encoding="utf-8"))
-          cfg_model = cfg.get("ai", {}).get("model", "").strip()
-          print(f"=== 1. Configured AI Model in data/config.json: '{cfg_model}' ===")
-
-          print("=== 2. Profiles in Repository ===")
-          for p in sorted(glob.glob("profiles/**/*", recursive=True)):
-              if os.path.isfile(p):
-                  print(f" - {p} ({os.path.getsize(p)} bytes)")
-
-          print("=== 3. Verifying Horizon Source Entrypoint (src/ai/analyzer.py) ===")
-          from src.ai.analyzer import ContentAnalyzer
-          if not hasattr(ContentAnalyzer, "analyze_batch") or not inspect.iscoroutinefunction(ContentAnalyzer.analyze_batch):
-              raise SystemExit("FATAL: ContentAnalyzer.analyze_batch async entrypoint not found in src/ai/analyzer.py!")
-          print(f" - Verified: ContentAnalyzer.analyze_batch signature = {inspect.signature(ContentAnalyzer.analyze_batch)}")
-
-          api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-          if not api_key:
-              raise SystemExit("FATAL: DEEPSEEK_API_KEY is empty!")
-          try:
-              r = httpx.get("https://api.deepseek.com/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=15.0)
-              r.raise_for_status()
-              models = [m.get("id") for m in r.json().get("data", [])]
-              print(f"=== 4. DeepSeek Official /models Available (HTTP {r.status_code}) ===\n {models}")
-              if cfg_model not in models:
-                  print(f"ℹ️ Note: '{cfg_model}' is used as a server-side compatible alias (canonical /models list: {models}). Proceeding normally.")
-          except Exception as e:
-              print(f"ℹ️ Note: DeepSeek /models check skipped ({e}). Proceeding normally.")
-          PYEOF
-
-      # 步骤 2：写入受环境变量 HORIZON_ENABLE_PREFILTER=1 门控的预筛钩子
       - name: Install Pre-Scoring Budget & 7-Day URL Filter Hook
         run: |
           SITE_PKG=$(uv run python -c "import site; print(site.getsitepackages()[0])")
@@ -104,8 +67,7 @@ jobs:
                   gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
                   now = datetime.datetime.now()
                   seen = set()
-                  loaded_files = 0
-                  errors = []
+                  loaded = 0
                   for d in range(1, 8):
                       p_date = (now - datetime.timedelta(days=d)).strftime("%Y-%m-%d")
                       url = f"https://raw.githubusercontent.com/{repo}/gh-pages/_posts/{p_date}-summary-zh.md"
@@ -119,117 +81,78 @@ jobs:
                               if "### [" in txt:
                                   for u_m in re.findall(r"\]\((https?://[^\s\)]+)\)", txt):
                                       seen.add(_norm_url(u_m))
-                                  loaded_files += 1
-                      except urllib.error.HTTPError as he:
-                          if he.code != 404:
-                              errors.append(f"{p_date}:HTTP_{he.code}")
-                      except Exception as ex:
-                          errors.append(f"{p_date}:{type(ex).__name__}")
-                  print(f"🔍 [7-Day History URL Loader] Scanned 7 days: loaded_reports={loaded_files}, unique_urls={len(seen)}, non_404_errors={errors}")
+                                  loaded += 1
+                      except Exception:
+                          pass
+                  print(f"🔍 [7-Day History URL Loader] Loaded {loaded} reports, {len(seen)} unique URLs.", flush=True)
                   return seen
 
               EN_CORE_RE = re.compile(
                   r"(?<![a-zA-Z0-9])(?:ai|gpt|chatgpt|claude|openai|anthropic|gemini|deepseek|kimi|qwen|"
                   r"llama|mcp|agent[s]?|workflow[s]?|prompt[s]?|cursor|windsurf|v0|bolt|lovable|copilot|"
                   r"n8n|dify|coze|obsidian|notion|runway(?:ml)?|sora|kling|vidu|veo|midjourney|flux|"
-                  r"davinci|tts|llm[s]?|rag)(?![a-zA-Z0-9])",
-                  re.I
+                  r"davinci|tts|llm[s]?|rag)(?![a-zA-Z0-9])", re.I
               )
-              ZH_CORE_KW = [
-                  "智能体", "工作流", "提示词", "大模型", "千问", "豆包", "扣子", "知识库", "笔记",
-                  "可灵", "即梦", "视频生成", "短剧", "动画", "动漫", "漫剧", "分镜", "数字人",
-                  "配音", "语音", "剪辑", "达芬奇", "剪映", "字幕", "脚本", "生图", "绘图", "编程"
-              ]
+              ZH_CORE_KW = ["智能体", "工作流", "提示词", "大模型", "千问", "豆包", "扣子", "知识库", "笔记", "可灵", "即梦", "视频生成", "短剧", "动画", "动漫", "漫剧", "分镜", "数字人", "配音", "语音", "剪辑", "达芬奇", "剪映", "字幕", "脚本", "生图", "绘图", "编程"]
               EN_ACTION_RE = re.compile(
                   r"(?<![a-zA-Z0-9])(?:release[sd]?|releasing|launch(?:es|ed|ing)?|announc(?:es|ed|ing)|"
                   r"introduce[sd]?|introducing|update[sd]?|updating|open-?source[ds]?|github|guide[s]?|"
                   r"tutorial[s]?|how-to|build(?:s|ing)?|built|automat(?:es|ed|ing|ion)|benchmark[s]?|"
-                  r"full-stack|template[s]?|step-by-step|v\d+(?:\.\d+)+|\d+\.\d+)(?![a-zA-Z0-9])",
-                  re.I
+                  r"full-stack|template[s]?|step-by-step|v\d+(?:\.\d+)+|\d+\.\d+)(?![a-zA-Z0-9])", re.I
               )
-              ZH_ACTION_KW = [
-                  "发布", "上线", "更新", "开源", "免费", "实测", "测评", "教程", "指南", "拆解",
-                  "玩法", "技巧", "提效", "自动化", "神器", "全流程", "零代码", "一人公司", "自媒体"
-              ]
-              EN_LEARNING_RE = re.compile(
-                  r"(?<![a-zA-Z0-9])(?:english|vocabulary|grammar|speaking|listening|pronunciation|"
-                  r"idiom[s]?|phrase[s]?|expression[s]?|conversation|bbc|podcast|learn(?:ing)?)(?![a-zA-Z0-9])",
-                  re.I
-              )
-              PM_AGILE_RE = re.compile(
-                  r"(?<![a-zA-Z0-9])(?:scrum|agile|sprint[s]?|kanban|backlog|retrospective|"
-                  r"product owner|scrum master|project management|stakeholder[s]?|delivery|coaching)(?![a-zA-Z0-9])",
-                  re.I
-              )
-              TITLE_NOISE_RE = re.compile(
-                  r"(?<![a-zA-Z0-9])(?:is down for|down for everyone|login error|payment declined|"
-                  r"account suspended|what is your favou?rite|whats your favou?rite|am i the only one|"
-                  r"megathread|daily discussion|weekly thread|shitpost|nsfw)(?![a-zA-Z0-9])",
-                  re.I
-              )
+              ZH_ACTION_KW = ["发布", "上线", "更新", "开源", "免费", "实测", "测评", "教程", "指南", "拆解", "玩法", "技巧", "提效", "自动化", "神器", "全流程", "零代码", "一人公司", "自媒体"]
+              EN_LEARN_RE = re.compile(r"(?<![a-zA-Z0-9])(?:english|vocabulary|grammar|speaking|listening|pronunciation|idiom[s]?|phrase[s]?|expression[s]?|conversation|bbc|podcast|learn(?:ing)?)(?![a-zA-Z0-9])", re.I)
+              PM_AGILE_RE = re.compile(r"(?<![a-zA-Z0-9])(?:scrum|agile|sprint[s]?|kanban|backlog|retrospective|product owner|scrum master|project management|stakeholder[s]?|delivery|coaching)(?![a-zA-Z0-9])", re.I)
+              TITLE_NOISE_RE = re.compile(r"(?<![a-zA-Z0-9])(?:is down for|down for everyone|login error|payment declined|account suspended|what is your favou?rite|whats your favou?rite|am i the only one|megathread|daily discussion|weekly thread|shitpost|nsfw)(?![a-zA-Z0-9])", re.I)
               ZH_NOISE_KW = ["跌停", "涨停", "a股", "港股", "楼市", "房地产", "买房", "白酒", "茅台", "国足", "男足", "演唱会"]
 
               TIER1_CATS = {"ai-official", "ai-agent", "ai-tools", "ai-blog", "ai-youtube"}
               TIER2_CATS = {"ai-digest", "ai-news-cn", "efficiency-tools", "ai-video", "github-trending"}
               TIER3_CATS = {"ai-reddit", "tech-business-cn", "business-tech-cn", "english-learning", "project-management"}
 
-              def _get_item_tier_and_feed(item):
+              def _get_tier(item):
                   meta = getattr(item, "metadata", None) or {}
                   cat = str(meta.get("category") or "").strip()
                   stype = str(getattr(item, "source_type", "") or "").lower()
-                  feed_name = str(meta.get("feed_name") or stype or "unknown").strip()
-
+                  fname = str(meta.get("feed_name") or stype or "unknown").strip()
                   if cat in TIER1_CATS:
-                      return 1, cat, feed_name
+                      return 1, cat, fname
                   if cat in TIER2_CATS or stype in ("hackernews", "telegram", "hn", "github") or "github" in stype:
-                      return 2, cat, feed_name
+                      return 2, cat, fname
                   if cat in TIER3_CATS:
-                      return 3, cat, feed_name
-                  return 2, cat, feed_name
+                      return 3, cat, fname
+                  return 2, cat, fname
 
-              def _score_candidate(item, cat, idx):
+              def _score(item, cat, idx):
                   title = str(getattr(item, "title", "") or "")
                   content = str(getattr(item, "content", "") or "")
-                  head_snippet = f"{title} {content[:150]}".lower()
-
                   if title.endswith(" - Reddit"):
                       try:
                           item.title = re.sub(r"\s*-\s*Reddit\s*$", "", title).strip()
                           title = item.title
                       except Exception:
                           pass
-
-                  if TITLE_NOISE_RE.search(title) or any(k in head_snippet for k in ZH_NOISE_KW):
+                  if TITLE_NOISE_RE.search(title) or any(k in f"{title} {content[:150]}".lower() for k in ZH_NOISE_KW):
                       return -15.0
-
-                  core_hits = len(set(m.lower() for m in EN_CORE_RE.findall(title))) * 4.0 + len(set(m.lower() for m in EN_CORE_RE.findall(content[:600]))) * 2.0
+                  c_hits = len(set(m.lower() for m in EN_CORE_RE.findall(title))) * 4.0 + len(set(m.lower() for m in EN_CORE_RE.findall(content[:600]))) * 2.0
                   for kw in ZH_CORE_KW:
-                      if kw in title:
-                          core_hits += 4.0
-                      elif kw in content[:600]:
-                          core_hits += 2.0
-
+                      c_hits += 4.0 if kw in title else (2.0 if kw in content[:600] else 0.0)
                   if cat == "english-learning":
-                      core_hits += len(set(m.lower() for m in EN_LEARNING_RE.findall(f"{title} {content[:400]}"))) * 3.0
+                      c_hits += len(set(m.lower() for m in EN_LEARN_RE.findall(f"{title} {content[:400]}"))) * 3.0
                   elif cat == "project-management":
-                      core_hits += len(set(m.lower() for m in PM_AGILE_RE.findall(f"{title} {content[:400]}"))) * 3.0
-
-                  act_hits = len(set(m.lower() for m in EN_ACTION_RE.findall(title))) * 3.0 + len(set(m.lower() for m in EN_ACTION_RE.findall(content[:600]))) * 1.5
+                      c_hits += len(set(m.lower() for m in PM_AGILE_RE.findall(f"{title} {content[:400]}"))) * 3.0
+                  a_hits = len(set(m.lower() for m in EN_ACTION_RE.findall(title))) * 3.0 + len(set(m.lower() for m in EN_ACTION_RE.findall(content[:600]))) * 1.5
                   for kw in ZH_ACTION_KW:
-                      if kw in title:
-                          act_hits += 3.0
-                      elif kw in content[:600]:
-                          act_hits += 1.5
-
-                  score = core_hits + act_hits
-                  if score > 0:
+                      a_hits += 3.0 if kw in title else (1.5 if kw in content[:600] else 0.0)
+                  sc = c_hits + a_hits
+                  if sc > 0:
                       clean_c = re.sub(r"<[^>]+>", "", content).strip()
                       if len(clean_c) > 150 and clean_c != title.strip():
-                          score += 1.5
+                          sc += 1.5
                       meta = getattr(item, "metadata", None) or {}
-                      if meta.get("score") and isinstance(meta.get("score"), (int, float)) and meta.get("score") >= 150:
-                          score += 2.0
-                  return score
+                      if isinstance(meta.get("score"), (int, float)) and meta.get("score") >= 150:
+                          sc += 2.0
+                  return sc
 
               from src.ai.analyzer import ContentAnalyzer
               _orig_analyze_batch = ContentAnalyzer.analyze_batch
@@ -237,82 +160,47 @@ jobs:
               async def _budgeted_analyze_batch(self, items, *args, **kwargs):
                   if not isinstance(items, list) or not items or getattr(self, "_in_budget_hook", False):
                       return await _orig_analyze_batch(self, items, *args, **kwargs)
-
                   self._in_budget_hook = True
                   try:
                       raw_count = len(items)
                       seen_urls = _load_7day_published_urls()
-                      items_pool = []
-                      dup_dropped = 0
-                      for it in items:
-                          u = _norm_url(str(getattr(it, "url", "") or ""))
-                          if u and u in seen_urls:
-                              dup_dropped += 1
-                          else:
-                              items_pool.append(it)
+                      pool = [it for it in items if _norm_url(str(getattr(it, "url", "") or "")) not in seen_urls]
+                      dup_dropped = raw_count - len(pool)
 
-                      per_feed_buckets = defaultdict(list)
-                      for idx, it in enumerate(items_pool):
-                          tier, cat, fname = _get_item_tier_and_feed(it)
-                          sc = _score_candidate(it, cat, idx)
-                          per_feed_buckets[(tier, cat, fname)].append((sc, idx, it))
+                      buckets = defaultdict(list)
+                      for idx, it in enumerate(pool):
+                          t, cat, fname = _get_tier(it)
+                          buckets[(t, cat, fname)].append((_score(it, cat, idx), idx, it))
 
-                      tier_buckets = {1: [], 2: [], 3: []}
-                      print("\n📊 === [Pre-Scoring Source Audit (7-Day URL Dedup + Category Relevance Filter)] ===")
-                      for (tier, cat, fname), entry_list in sorted(per_feed_buckets.items(), key=lambda x: (x[0][0], x[0][2])):
-                          entry_list.sort(key=lambda x: (x[0], -x[1]), reverse=True)
-                          if cat == "ai-official":
-                              min_sc, cap = 0.0, 5
-                          elif cat == "ai-reddit":
-                              min_sc, cap = 6.0, 4
-                          elif tier == 3:
-                              min_sc, cap = 4.0, 4
-                          elif tier == 1:
-                              min_sc, cap = 2.0, 5
-                          else:
-                              min_sc, cap = 2.0, 5
+                      t_Step = {1: [], 2: [], 3: []}
+                      print("\n📊 === [Pre-Scoring Source Audit] ===", flush=True)
+                      for (t, cat, fname), elist in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][2])):
+                          elist.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+                          min_sc, cap = (0.0, 5) if cat == "ai-official" else ((6.0, 4) if cat == "ai-reddit" else ((4.0, 4) if t == 3 else (2.0, 5)))
+                          qual = [x for x in elist if x[0] >= min_sc]
+                          kept = qual[:cap]
+                          t_Step[t].extend(kept)
+                          print(f" - [Tier {t} | {cat or 'native'}] {fname}: 24h_new={len(elist)} | low_rel_dropped={len(elist)-len(qual)} -> kept={len(kept)}", flush=True)
 
-                          qualified = [x for x in entry_list if x[0] >= min_sc]
-                          low_rel_cnt = len(entry_list) - len(qualified)
-                          kept = qualified[:cap]
-                          tier_buckets[tier].extend(kept)
-                          print(f" - [Tier {tier} | {cat or 'native'}] {fname}: 24h_new={len(entry_list)} | low_rel_dropped={low_rel_cnt} -> feed_kept={len(kept)}")
-
-                      GLOBAL_CAP = 60
                       QUOTAS = {1: 28, 2: 18, 3: 14}
-                      final_items = []
-                      carry = 0
+                      final_items, carry = [], 0
                       for t in (1, 2, 3):
-                          tier_buckets[t].sort(key=lambda x: (x[0], -x[1]), reverse=True)
+                          t_Step[t].sort(key=lambda x: (x[0], -x[1]), reverse=True)
                           allow = QUOTAS[t] + carry
-                          taken = [x[2] for x in tier_buckets[t][:allow]]
+                          taken = [x[2] for x in t_Step[t][:allow]]
                           final_items.extend(taken)
                           carry = max(0, allow - len(taken))
 
-                      final_items = final_items[:GLOBAL_CAP]
-                      items[:] = final_items
-                      print(f"🎯 [Global Pre-Scoring Budget] Raw 24h={raw_count} | 7-Day Dup Dropped={dup_dropped} | Qualified (T1={len(tier_buckets[1])}, T2={len(tier_buckets[2])}, T3={len(tier_buckets[3])}) -> In-Place Mutated & Sent to DeepSeek={len(items)}/{GLOBAL_CAP}\n")
+                      items[:] = final_items[:60]
+                      print(f"🎯 [Global Pre-Scoring Budget] Raw 24h={raw_count} | 7-Day Dup Dropped={dup_dropped} -> Sent to DeepSeek={len(items)}/60\n", flush=True)
                       return await _orig_analyze_batch(self, items, *args, **kwargs)
                   finally:
                       self._in_budget_hook = False
 
               ContentAnalyzer.analyze_batch = _budgeted_analyze_batch
           EOF
+          uv run python -c 'import os; os.environ["HORIZON_ENABLE_PREFILTER"]="1"; import sitecustomize; from src.ai.analyzer import ContentAnalyzer; assert ContentAnalyzer.analyze_batch.__name__ == "_budgeted_analyze_batch"; print("✅ Hook verified active!")'
 
-      # 步骤 3：独立断言钩子已挂载成功
-      - name: Verify Pre-Scoring Hook Active
-        env:
-          HORIZON_ENABLE_PREFILTER: "1"
-        run: |
-          uv run python -c '
-          from src.ai.analyzer import ContentAnalyzer
-          fn_name = getattr(ContentAnalyzer.analyze_batch, "__name__", "")
-          print(f"Checking ContentAnalyzer.analyze_batch.__name__ = {fn_name}")
-          assert fn_name == "_budgeted_analyze_batch", f"FATAL: Hook not active! Got {fn_name}"
-          print("✅ Pre-scoring budget hook verified active!")
-          '
-
-      # 步骤 4：运行 Horizon
       - name: Run Horizon
         env:
           HORIZON_ENABLE_PREFILTER: "1"
@@ -330,11 +218,8 @@ jobs:
           set -o pipefail
           uv run horizon --hours 24 | tee data/horizon_run.log
 
-      - name: Set current date as environment variable
-        run: echo "DATE=$(date +'\%Y-\%m-\%d')" >> $GITHUB_ENV
-
-      # 步骤 5：跨天同事件语义去重 + 同日同 AI 合并
-      - name: Consolidate Same-AI & Deduplicate Cross-Day
+      - name: Consolidate, Verify & Prepare Outputs
+        id: verify_report
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           REPO: ${{ github.repository }}
@@ -345,66 +230,175 @@ jobs:
 
           cfg = json.load(open("data/config.json", encoding="utf-8"))
           cfg_model = cfg.get("ai", {}).get("model", "deepseek-chat").strip()
-
           bj_now = datetime.datetime.now()
           utc_now = datetime.datetime.now(datetime.timezone.utc)
           date_str = bj_now.strftime("%Y-%m-%d")
           utc_date_str = utc_now.strftime("%Y-%m-%d")
 
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envf:
+              envf.write(f"DATE={date_str}\n")
+
           summary_path = f"data/summaries/horizon-{date_str}-zh.md"
           pages_path = f"docs/_posts/{date_str}-summary-zh.md"
-          manifest_path = f"data/summaries/must_keep_urls-{date_str}.json"
 
           if not os.path.exists(summary_path) and os.path.exists(f"data/summaries/horizon-{utc_date_str}-zh.md"):
               shutil.move(f"data/summaries/horizon-{utc_date_str}-zh.md", summary_path)
           if not os.path.exists(pages_path) and os.path.exists(f"docs/_posts/{utc_date_str}-summary-zh.md"):
               shutil.move(f"docs/_posts/{utc_date_str}-summary-zh.md", pages_path)
 
+          def set_ready(flag):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write(f"ready={'true' if flag else 'false'}\n")
+
           if not os.path.exists(summary_path):
-              print(f"No summary file found at {summary_path}, skipping consolidation.")
+              print("No summary file found.")
+              set_ready(False)
               raise SystemExit(0)
 
-          def fix_header_dates_only(md_text, target_date):
-              def repl_yaml(m):
-                  return re.sub(r"\d{4}-\d{2}-\d{2}", target_date, m.group(0))
-              md_text = re.sub(r"\A---\s*\n[\s\S]*?\n---\s*\n", repl_yaml, md_text, count=1)
-              md_text = re.sub(r"^(#\s*Horizon\s*每日速递\s*-\s*)\d{4}-\d{2}-\d{2}", rf"\g<1>{target_date}", md_text, count=1, flags=re.M)
-              return md_text
+          def fix_dates(txt):
+              txt = re.sub(r"\A---\s*\n[\s\S]*?\n---\s*\n", lambda m: re.sub(r"\d{4}-\d{2}-\d{2}", date_str, m.group(0)), txt, count=1)
+              return re.sub(r"^(#\s*Horizon\s*每日速递\s*-\s*)\d{4}-\d{2}-\d{2}", rf"\g<1>{date_str}", txt, count=1, flags=re.M)
 
-          def write_verified_outputs(md_body, target_date):
+          def save_both(body):
               os.makedirs("docs/_posts", exist_ok=True)
-              header = f"---\nlayout: default\ntitle: \"Horizon Summary: {target_date} (ZH)\"\ndate: {target_date}\nlang: zh\n---\n\n"
-              if os.path.exists(pages_path):
-                  pages_txt = open(pages_path, encoding="utf-8").read()
-                  m = re.match(r"\A(---\s*\n[\s\S]*?\n---\s*\n)", pages_txt)
-                  if m:
-                      header = re.sub(r"\d{4}-\d{2}-\d{2}", target_date, m.group(1))
-              tmp_sum = summary_path + ".tmp"
-              tmp_pages = pages_path + ".tmp"
-              with open(tmp_sum, "w", encoding="utf-8") as f1:
-                  f1.write(md_body.strip() + "\n")
-              with open(tmp_pages, "w", encoding="utf-8") as f2:
-                  f2.write(header + md_body.strip() + "\n")
-              os.replace(tmp_sum, summary_path)
-              os.replace(tmp_pages, pages_path)
+              hdr = f"---\nlayout: default\ntitle: \"Horizon Summary: {date_str} (ZH)\"\ndate: {date_str}\nlang: zh\n---\n\n"
+              with open(summary_path + ".tmp", "w", encoding="utf-8") as f1:
+                  f1.write(body.strip() + "\n")
+              with open(pages_path + ".tmp", "w", encoding="utf-8") as f2:
+                  f2.write(hdr + body.strip() + "\n")
+              os.replace(summary_path + ".tmp", summary_path)
+              os.replace(pages_path + ".tmp", pages_path)
 
           def norm_url(u):
-              u = (u or "").strip()
               try:
-                  p = urllib.parse.urlsplit(u)
-                  q = [(k, v) for k, v in urllib.parse.parse_qsl(p.query)
-                       if not k.lower().startswith("utm_") and k.lower() not in ("oc", "ref", "from", "spm", "feature", "si")]
+                  p = urllib.parse.urlsplit((u or "").strip())
+                  q = [(k, v) for k, v in urllib.parse.parse_qsl(p.query) if not k.lower().startswith("utm_") and k.lower() not in ("oc", "ref", "from", "spm", "feature", "si")]
                   return urllib.parse.urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), urllib.parse.urlencode(q), ""))
               except Exception:
-                  return u
+                  return (u or "").strip()
 
-          raw_md = fix_header_dates_only(open(summary_path, encoding="utf-8").read(), date_str)
-          write_verified_outputs(raw_md, date_str)
+          raw_md = fix_dates(open(summary_path, encoding="utf-8").read())
+          save_both(raw_md)
 
           if "### [" not in raw_md:
-              print("Info: Horizon selected 0 items today. Saving empty manifest.")
-              json.dump({"primary_urls": [], "has_history": False}, open(manifest_path, "w", encoding="utf-8"))
+              print("Selected 0 items today.")
+              set_ready(False)
               raise SystemExit(0)
 
           repo = os.environ.get("REPO", "starb5682a5-eng/Horizon")
-          gh_token = os.environ.get("GITHUB_TOKEN",
+          gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+          prev_reports = []
+          for d in range(1, 8):
+              if len(prev_reports) >= 2:
+                  break
+              p_date = (bj_now - datetime.timedelta(days=d)).strftime("%Y-%m-%d")
+              url = f"https://raw.githubusercontent.com/{repo}/gh-pages/_posts/{p_date}-summary-zh.md"
+              headers = {"User-Agent": "Horizon"}
+              if gh_token:
+                  headers["Authorization"] = f"token {gh_token}"
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req, timeout=8) as r:
+                      txt = r.read().decode("utf-8", errors="ignore")
+                      blocks = re.findall(r"###\s+\[(.*?)\]\((https?://[^\s\)]+)\).*?\n+([\s\S]*?)(?=\n<a id=\"|\n###\s+\[|\n---\n|\Z)", txt)
+                      if blocks:
+                          items_str = [f"- 标题: {t} | 链接: {u} | 摘要: {re.sub(r'\\s+', ' ', b).strip()[:280]}" for t, u, b in blocks[:20]]
+                          prev_reports.append(f"【{p_date} 已发记录】:\n" + "\n".join(items_str))
+              except Exception:
+                  pass
+
+          primary_urls = set(norm_url(u) for u in re.findall(r"^###\s+\[.*?\]\((https?://[^\s\)]+)\)", raw_md, flags=re.M))
+          api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+
+          if api_key and (len(primary_urls) > 1 or prev_reports):
+              sys_p = f"""你是一位资深 AI 自媒体主编。请对今日日报执行【跨天同事件去重】与【同日同 AI 结构化合并】：
+              1. 跨天去重：对照历史记录，仅当今日资讯与历史记录属于【同一具体事件/同一案例】时才剔除（并在文末最后一行注明 `<!-- DROPPED_URLS: URL1, URL2 -->`）；若是同一 AI 的不同新功能、新玩法或新测评，必须 100% 保留！
+              2. 同日同 AI 合并：同一份日报内，每个核心 AI（如 Claude、ChatGPT、Gemini）在目录和正文中只设 1 个主词条；将该 AI 当天其余不同新动态放在该词条正文下方的「📌 **同日该 AI 其他重要动态汇总**：」子列表中，完整保留每条子动态的核心事实与原始链接 `[原题](原始URL)`！
+              3. 严格排版：顶部主标题为 `# Horizon 每日速递 - {date_str}`；导语为 `> 从原始资讯中去重并归纳合并出 X 条高价值核心情报。`；目录编号 `1..X`、正文锚点 `<a id="item-ai-creator-1"></a>` 与正文 `### [标题](链接)` 数量必须严格相等且从 1 连续递增；保留 `⭐️`、来源时间行、角度与 `**标签**:`；直接输出纯 Markdown。"""
+              usr_p = f"<untrusted_history>\n{chr(10).join(prev_reports) if prev_reports else '无'}\n</untrusted_history>\n\n<untrusted_today>\n{raw_md}\n</untrusted_today>"
+              try:
+                  resp = httpx.post(
+                      "https://api.deepseek.com/chat/completions",
+                      headers={"Authorization": f"Bearer {api_key}"},
+                      json={"model": cfg_model, "messages": [{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}], "temperature": 0.2, "max_tokens": 8192},
+                      timeout=180.0
+                  )
+                  resp.raise_for_status()
+                  rj = resp.json()
+                  u = rj.get("usage", {})
+                  in_t, out_t = u.get("prompt_tokens", 0), u.get("completion_tokens", 0)
+                  h_in, h_out = 0, 0
+                  if os.path.exists("data/horizon_run.log"):
+                      m_t = re.search(r"Token usage this run:\s*\d+\s*tokens\s*\(input:\s*(\d+),\s*output:\s*(\d+)\)", open("data/horizon_run.log", encoding="utf-8", errors="ignore").read())
+                      if m_t:
+                          h_in, h_out = int(m_t.group(1)), int(m_t.group(2))
+                  cost = ((h_in + in_t) * 2.0 + (h_out + out_t) * 8.0) / 1_000_000
+                  print(f"💰 [Daily Total Cost] Horizon(in={h_in}, out={h_out}) + Merge(in={in_t}, out={out_t}) | Est. Cost ≈ ¥{cost:.4f} RMB")
+
+                  if rj["choices"][0].get("finish_reason") == "stop":
+                      new_md = re.sub(r"\s*```$", "", re.sub(r"^```(?:markdown)?\s*", "", rj["choices"][0]["message"]["content"].strip()))
+                      dropped = set(norm_url(x) for m in re.findall(r"<!--\s*DROPPED_URLS:\s*(.*?)\s*-->", new_md) for x in re.findall(r"https?://[^\s,>]+", m) if norm_url(x) in primary_urls) if prev_reports else set()
+                      new_md = fix_dates(re.sub(r"\n*<!--\s*DROPPED_URLS:.*?-->\s*", "\n", new_md).strip())
+                      toc_l = re.findall(r"^\d+\.\s+\[.*?\]\(#(item-[a-zA-Z0-9_-]+)\)", new_md, flags=re.M)
+                      anc = re.findall(r'<a id="(item-[a-zA-Z0-9_-]+)"></a>', new_md)
+                      h3_b = re.split(r"(?=^###\s+\[)", new_md, flags=re.M)[1:]
+                      out_u = set(norm_url(x) for x in re.findall(r"\]\((https?://[^\s\)]+)\)", new_md))
+                      if f"# Horizon 每日速递 - {date_str}" in new_md and len(h3_b) >= 1 and toc_l == anc and len(toc_l) == len(h3_b) and all(("⭐️" in b and "标签" in b) for b in h3_b) and primary_urls.issubset(out_u | dropped):
+                          save_both(new_md)
+                          print(f"✅ Consolidated into {len(h3_b)} items successfully!")
+                      else:
+                          print("ℹ️ Consolidation validation skipped, keeping original Horizon summary.")
+              except Exception as e:
+                  print(f"ℹ️ Consolidation skipped ({e}), keeping original Horizon summary.")
+
+          final_txt = open(summary_path, encoding="utf-8").read()
+          h3_cnt = len(re.findall(r"^###\s+\[.*?\]\(https?://", final_txt, flags=re.M))
+          is_ready = (f"# Horizon 每日速递 - {date_str}" in final_txt and h3_cnt >= 1)
+          print(f"✅ Final Report Ready={is_ready} ({h3_cnt} items)")
+          set_ready(is_ready)
+          PYEOF
+
+      - name: Deploy to GitHub Pages
+        if: steps.verify_report.outputs.ready == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true
+          commit_message: "📝 Daily Summary: ${{ env.DATE }}"
+          publish_branch: gh-pages
+          enable_jekyll: true
+
+      - name: Send to Telegram
+        if: always() && !cancelled() && steps.verify_report.outputs.ready == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          uv run python - << 'PYEOF'
+          import os, datetime, httpx
+          date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+          file_path = f"data/summaries/horizon-{date_str}-zh.md"
+          bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+          text = open(file_path, encoding="utf-8").read()
+          preview = text[:1500] + ("\n\n...(完整内容请查阅下方 Markdown 附件)" if len(text) > 1500 else "")
+          r1 = httpx.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={"chat_id": chat_id, "text": preview}, timeout=30.0)
+          assert r1.json().get("ok") is True, f"sendMessage failed: {r1.text}"
+          with open(file_path, "rb") as f:
+              r2 = httpx.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data={"chat_id": chat_id, "caption": f"📅 Horizon AI 自媒体选题日报 ({date_str})"}, files={"document": (os.path.basename(file_path), f, "text/markdown")}, timeout=60.0)
+          assert r2.json().get("ok") is True, f"sendDocument failed: {r2.text}"
+          print("✅ Telegram message and document sent successfully!")
+          PYEOF
+
+      - name: Notify Telegram on Failure or Empty Digest
+        if: always() && !cancelled() && (failure() || steps.verify_report.outputs.ready != 'true')
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+          READY_FLAG: ${{ steps.verify_report.outputs.ready }}
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          MSG="⚠️ Horizon 日报状态提醒 (${DATE})%0A运行状态: ${JOB_STATUS}%0A日报就绪: ${READY_FLAG}%0A说明: 今日无新增资讯或工作流异常，请查看 GitHub Actions 日志。"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null || true        
