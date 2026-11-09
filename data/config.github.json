@@ -17,7 +17,7 @@
     "default_profile": "ai-creator",
     "profile_settings": {
       "ai-creator": {
-        "threshold": 7.0,
+        "threshold": 6.5,
         "topic_dedup": true
       }
     }
@@ -183,7 +183,7 @@
       },
       {
         "name": "YouTube - 技术爬爬虾 (AI工具与工作流实操)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
@@ -204,14 +204,14 @@
       },
       {
         "name": "YouTube - AI Explained (大模型深度解读)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Two Minute Papers (AI视觉与视频前沿)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
