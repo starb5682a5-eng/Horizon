@@ -19,10 +19,6 @@
       "ai-creator": {
         "threshold": 7.0,
         "topic_dedup": true
-      },
-      "tech-blog": {
-        "threshold": 7.0,
-        "topic_dedup": true
       }
     }
   },
@@ -37,8 +33,8 @@
     ],
     "hackernews": {
       "enabled": true,
-      "fetch_top_stories": 12,
-      "min_score": 250,
+      "fetch_top_stories": 25,
+      "min_score": 150,
       "profile": "ai-creator"
     },
     "rss": [
@@ -139,21 +135,21 @@
         "url": "https://www.oneusefulthing.org/feed",
         "enabled": true,
         "category": "ai-blog",
-        "profile": "tech-blog"
+        "profile": "ai-creator"
       },
       {
         "name": "Andrej Karpathy Blog (AI科普与深度思考)",
         "url": "https://karpathy.bearblog.dev/feed/",
         "enabled": true,
         "category": "ai-blog",
-        "profile": "tech-blog"
+        "profile": "ai-creator"
       },
       {
         "name": "The Batch (吴恩达 DeepLearning.AI 周刊)",
         "url": "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_the_batch.xml",
         "enabled": true,
         "category": "ai-blog",
-        "profile": "tech-blog"
+        "profile": "ai-creator"
       },
       {
         "name": "Runway & AI视频动态 (短剧与生成式视频)",
@@ -182,7 +178,7 @@
         "url": "https://www.scrum.org/resources/blog/rss.xml",
         "enabled": true,
         "category": "project-management",
-        "profile": "tech-blog",
+        "profile": "ai-creator",
         "content_extractor": "trafilatura"
       },
       {
@@ -194,14 +190,14 @@
       },
       {
         "name": "YouTube - Matt Wolfe (AI工具全网测评)",
-        "url": "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti38g",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
-        "url": "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UCn8ujwUJnFT2jkayMDl-mgQ",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCawZsQWqfGSbCI5yjkdVkTA",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
@@ -247,8 +243,7 @@
   "digest": {
     "max_items": 15,
     "profile_order": [
-      "ai-creator",
-      "tech-blog"
+      "ai-creator"
     ],
     "category_groups": {},
     "default_group": "other",
@@ -259,8 +254,8 @@
     "platform": "generic",
     "url_env": "TELEGRAM_WEBHOOK_URL",
     "payload_template": {
-      "chat_id": "6466873727",
-      "text": "测试推送成功"
+      "chat_id": "",
+      "text": ""
     }
   }
 }
