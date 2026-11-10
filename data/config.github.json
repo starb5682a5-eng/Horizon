@@ -245,9 +245,49 @@
     "profile_order": [
       "ai-creator"
     ],
-    "category_groups": {},
+    "category_groups": {
+      "official_and_creators": {
+        "name": "官方/博主/视频",
+        "limit": 7,
+        "categories": [
+          "ai-official",
+          "ai-agent",
+          "ai-tools",
+          "ai-blog",
+          "ai-youtube",
+          "ai-video"
+        ]
+      },
+      "digest_and_cn": {
+        "name": "资讯聚合与中文",
+        "limit": 5,
+        "categories": [
+          "ai-digest",
+          "ai-news-cn",
+          "tech-business-cn",
+          "business-tech-cn",
+          "efficiency-tools"
+        ]
+      },
+      "reddit": {
+        "name": "Reddit 社区",
+        "limit": 3,
+        "categories": [
+          "ai-reddit"
+        ]
+      },
+      "learning_pm_trending": {
+        "name": "英语学习/项目管理/GitHub趋势",
+        "limit": 2,
+        "categories": [
+          "english-learning",
+          "project-management",
+          "github-trending"
+        ]
+      }
+    },
     "default_group": "other",
-    "default_group_limit": null
+    "default_group_limit": 3
   },
   "webhook": {
     "enabled": false,
