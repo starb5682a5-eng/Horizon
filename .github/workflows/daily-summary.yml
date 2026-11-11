@@ -15,6 +15,7 @@ jobs:
     env:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
+      ENABLE_LLM_MERGE: "1"   # set to "0" to skip the (optional) same-AI merge call and save its tokens
     permissions:
       contents: write
 
@@ -37,6 +38,360 @@ jobs:
 
       - name: Prepare GitHub Actions config
         run: cp data/config.github.json data/config.json
+
+      - name: Resolve source URLs (primary → fallback, retries, status per source; zero tokens)
+        continue-on-error: true
+        run: |
+          uv run python - << 'PYEOF'
+          import calendar, concurrent.futures as cf, datetime, hashlib, json, os, random, time
+          from xml.sax.saxutils import escape, quoteattr
+          import feedparser
+          import httpx
+
+          HOURS = 24.0   # same window as `horizon --hours 24`
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+          NOW = time.time()
+          cfg = json.load(open("data/config.json", encoding="utf-8"))
+          cands, cands_loaded = {}, False
+          try:
+              cands = {k: v for k, v in json.load(open("data/source_candidates.json", encoding="utf-8")).items() if not k.startswith("_")}
+              cands_loaded = True
+          except FileNotFoundError:
+              print("⚠️ data/source_candidates.json NOT FOUND -> fallback addresses are DISABLED; every source uses only its own url. Put the file next to config.github.json in the data/ folder.")
+          except Exception as e:
+              print(f"⚠️ data/source_candidates.json could not be read ({type(e).__name__}) -> fallback addresses are DISABLED")
+
+          os.makedirs("relay", exist_ok=True)
+          relay_map = {}
+
+
+          def short_url(u, n=70):
+              u = u.replace("https://", "").replace("http://", "")
+              return u if len(u) <= n else u[:n - 1] + "…"
+
+
+          def retry_policy(url):
+              # YouTube answers the very same feed URL with 404/403 intermittently from datacenter IPs -> retry it harder
+              if "youtube.com/feeds" in url:
+                  return 5, (3, 5, 8, 12), (403, 404, 429, 500, 502, 503, 504)
+              return 2, (2,), (429, 500, 502, 503, 504, 520, 522, 524, 526)
+
+
+          def evaluate(url, stale_days, min_entries=1):
+              """Fetch one candidate. 'OK' = fetchable, parseable, dated, not stale, enough entries. Everything else = 'FAIL' + reason."""
+              attempts, delays, retry_codes = retry_policy(url)
+              last = "request failed"
+              for attempt in range(1, attempts + 1):
+                  pause = delays[min(attempt - 1, len(delays) - 1)] + random.random()
+                  try:
+                      resp = httpx.get(url, headers={"User-Agent": UA}, timeout=25.0, follow_redirects=True)
+                  except Exception as e:
+                      last = type(e).__name__
+                      if attempt < attempts:
+                          time.sleep(pause)
+                          continue
+                      break
+                  if resp.status_code != 200:
+                      last = f"HTTP {resp.status_code}"
+                      if attempt < attempts and resp.status_code in retry_codes:
+                          time.sleep(pause)
+                          continue
+                      return {"state": "FAIL", "detail": last + (f" (after {attempt} tries)" if attempt > 1 else "")}
+                  d = feedparser.parse(resp.text)
+                  n = len(d.entries)
+                  if n == 0:
+                      return {"state": "FAIL", "detail": "HTTP 200 but no entries (empty feed or not a feed)"}
+                  if n < min_entries:
+                      return {"state": "FAIL", "detail": f"only {n} entr{'y' if n == 1 else 'ies'} (a healthy feed returns >= {min_entries}; limited or stale mirror)"}
+                  ts = []
+                  for e in d.entries:
+                      t = e.get("published_parsed") or e.get("updated_parsed")
+                      if t:
+                          ts.append(calendar.timegm(t))
+                  if not ts:
+                      meta = getattr(d, "feed", None) or {}
+                      ft = meta.get("published_parsed") or meta.get("updated_parsed")
+                      return {"state": "FAIL", "undated": True, "body": resp.text, "entries": n,
+                              "feed_date": calendar.timegm(ft) if ft else None,
+                              "detail": f"{n} entries but none has a date (Horizon discards undated items)"}
+                  newest = max(ts)
+                  age_d = (NOW - newest) / 86400
+                  if age_d > stale_days:
+                      return {"state": "FAIL", "detail": f"newest entry is {age_d:.0f} days old (> {stale_days:g}d: stale or dead mirror)"}
+                  return {"state": "OK", "entries": n, "newest": newest, "body": resp.text, "tries": attempt,
+                          "in_window": sum(1 for t in ts if 0 <= NOW - t <= HOURS * 3600)}
+              return {"state": "FAIL", "detail": last + (f" (after {attempts} tries)" if attempts > 1 else "")}
+
+
+          def save_relay(name, text, kind):
+              fn = hashlib.sha1(name.encode("utf-8")).hexdigest()[:10] + ".xml"
+              with open(f"relay/{fn}", "w", encoding="utf-8") as f:
+                  f.write(text)
+              relay_map[name] = {"file": fn, "kind": kind}
+
+
+          def stamp_feed(body, name, stamp_ts):
+              """Rebuild an UNDATED feed as Atom, dating every entry with the feed's own build time (honest: that is when the list was generated)."""
+              d = feedparser.parse(body)
+              iso = datetime.datetime.fromtimestamp(stamp_ts, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+              parts = []
+              for e in d.entries:
+                  link = e.get("link") or ""
+                  if not link:
+                      continue
+                  title = e.get("title") or link
+                  desc = (e.get("summary") or e.get("description") or "")[:800]
+                  parts.append(f"<entry><id>{escape(link)}</id><title>{escape(title)}</title><link rel=\"alternate\" href={quoteattr(link)}/>"
+                               f"<published>{iso}</published><updated>{iso}</updated><summary>{escape(desc)}</summary></entry>")
+              return ('<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">'
+                      f"<title>{escape(name)}</title><id>stamped:{escape(name)}</id><updated>{iso}</updated>" + "".join(parts) + "</feed>"), len(parts)
+
+
+          def resolve(feed):
+              name = feed["name"]
+              spec = cands.get(name, {})
+              urls = [u for u in (spec.get("urls") or [feed["url"]]) if u]
+              stale = float(spec.get("stale_days", 30))
+              min_entries = int(spec.get("min_entries", 1))
+              want_relay = bool(spec.get("relay", False))            # serve the content we just fetched to Horizon (no second, flaky request)
+              undated_rescue = bool(spec.get("undated_rescue", False))
+              tried, quiet, undated = [], None, None
+              base = {"name": name, "category": feed.get("category", "-"), "primary": urls[0], "tried": tried, "relay": "", "note": "",
+                      "entries": 0, "newest": ""}
+
+              def done(u, r, note=""):
+                  res = dict(base, status="ACTIVE" if r["in_window"] > 0 else "NO_UPDATE", chosen=u, switched=u != urls[0],
+                             in_window=r["in_window"], entries=r["entries"], note=note,
+                             newest=datetime.datetime.fromtimestamp(r["newest"], datetime.timezone.utc).strftime("%m-%d %H:%MZ"))
+                  if want_relay:
+                      save_relay(name, r["body"], "cache")
+                      res["relay"] = "cache"
+                  return res
+
+              for u in urls:
+                  r = evaluate(u, stale, min_entries)
+                  tried.append({"url": u, "state": r["state"], "detail": r.get("detail", ""),
+                                "in_window": r.get("in_window") if r["state"] == "OK" else None,
+                                "tries": r.get("tries", 1)})
+                  if r["state"] != "OK":
+                      if r.get("undated") and undated is None:
+                          undated = (u, r)
+                      continue
+                  if r["in_window"] > 0:
+                      return done(u, r, "primary had nothing new, fallback has" if quiet else "")
+                  if quiet is None:
+                      quiet = (u, r)          # reachable but nothing new: keep looking for a fresher candidate, else this one is "no update"
+              if quiet:
+                  return done(quiet[0], quiet[1])
+              if undated_rescue and undated:
+                  u, r = undated
+                  stamp_ts = r["feed_date"] or NOW
+                  if (NOW - stamp_ts) / 86400 <= stale:
+                      xml, n = stamp_feed(r["body"], name, stamp_ts)
+                      fresh = 0 <= NOW - stamp_ts <= HOURS * 3600
+                      save_relay(name, xml, "stamped")
+                      return dict(base, status="ACTIVE" if fresh else "NO_UPDATE", chosen=u, switched=u != urls[0], in_window=n if fresh else 0,
+                                  entries=n, relay="stamped", newest=datetime.datetime.fromtimestamp(stamp_ts, datetime.timezone.utc).strftime("%m-%d %H:%MZ"),
+                                  note="feed has no item dates -> entries dated with the feed's build time")
+              return dict(base, status="FAILED", chosen=None, switched=False, in_window=0)
+
+
+          feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
+          print(f"🧭 === [Source Resolver] {len(feeds)} RSS sources | primary first, then fallbacks | window {HOURS:g}h | zero tokens ===")
+          unmatched = sorted(k for k in cands if k not in {f["name"] for f in feeds})
+          if unmatched:
+              print("⚠️ source_candidates.json has names that match no source in config.github.json (typo or renamed source): " + "; ".join(unmatched))
+          with cf.ThreadPoolExecutor(max_workers=8) as ex:
+              results = list(ex.map(resolve, feeds))
+          json.dump({"candidates_loaded": cands_loaded, "unmatched_keys": unmatched}, open("data/source_meta.json", "w", encoding="utf-8"), ensure_ascii=False)
+          json.dump(relay_map, open("relay/_map.json", "w", encoding="utf-8"), ensure_ascii=False)
+
+          by_name = {r["name"]: r for r in results}
+          changed = 0
+          for f in cfg["sources"]["rss"]:
+              r = by_name.get(f["name"])
+              if r and r["chosen"] and not r["relay"] and r["chosen"] != f["url"]:     # relay-served feeds are switched later, once the local server is up
+                  f["url"] = r["chosen"]
+                  changed += 1
+
+          # GitHub user-event sources are not URL feeds: report their status only
+          for src in cfg.get("sources", {}).get("github", []) or []:
+              if isinstance(src, dict) and src.get("type") == "user_events" and src.get("enabled", True):
+                  user = src.get("username", "")
+                  res = {"name": f"GitHub events: {user}", "category": "github", "primary": "", "chosen": None, "switched": False,
+                         "in_window": 0, "newest": "", "entries": 0, "relay": "", "note": "", "tried": []}
+                  try:
+                      resp = httpx.get(f"https://api.github.com/users/{user}/events/public",
+                                       headers={"User-Agent": "horizon-source-resolver"}, timeout=20.0)
+                      if resp.status_code == 200:
+                          ev = resp.json()
+                          n24 = 0
+                          for e in ev:
+                              try:
+                                  if NOW - calendar.timegm(time.strptime(e["created_at"], "%Y-%m-%dT%H:%M:%SZ")) <= HOURS * 3600:
+                                      n24 += 1
+                              except Exception:
+                                  pass
+                          res.update(status="ACTIVE" if n24 else "NO_UPDATE", in_window=n24, entries=len(ev))
+                      else:
+                          res.update(status="FAILED", tried=[{"url": "api.github.com", "state": "FAIL", "detail": f"HTTP {resp.status_code}"}])
+                  except Exception as e:
+                      res.update(status="FAILED", tried=[{"url": "api.github.com", "state": "FAIL", "detail": type(e).__name__}])
+                  results.append(res)
+
+          ICON = {"ACTIVE": "✅ 有更新", "NO_UPDATE": "💤 无更新", "FAILED": "❌ 失败  "}
+          RELAY_NOTE = {"cache": "（内容已缓存并本地转发，避免 Horizon 再次请求时被拒）", "stamped": "（源无条目日期，已用源的生成时间补全）", "api": "（经 YouTube API）"}
+          for r in results:
+              nm = r["name"].split(" (")[0]
+              if r["status"] == "FAILED":
+                  why = " | ".join(f"[{i + 1}] {t['detail']}" for i, t in enumerate(r["tried"]))
+                  print(f"{ICON['FAILED']} {nm}: {why}")
+                  continue
+              line = f"{ICON[r['status']]} {nm}: "
+              line += f"24h 内 {r['in_window']} 条" if r["status"] == "ACTIVE" else "能正常抓取，24h 内无新条目"
+              line += f"（共 {r['entries']} 条，最新 {r['newest'] or '—'}）" if r.get("entries") else ""
+              print(line + RELAY_NOTE.get(r.get("relay", ""), ""))
+              others = [t for t in r["tried"] if t["url"] != r["chosen"]]
+              if r["switched"]:
+                  why = "; ".join(f"{short_url(t['url'], 45)}: {t['detail'] or ('24h 内 0 条' if t.get('in_window') == 0 else '')}" for t in others)
+                  print(f"      ↪ 已切换备用源 → {short_url(r['chosen'])}   （此前: {why}）")
+              elif r["status"] == "NO_UPDATE" and others:
+                  why = "; ".join(f"{short_url(t['url'], 45)}: {t['detail'] or ('24h 内 ' + str(t.get('in_window')) + ' 条')}" for t in others)
+                  print(f"      其余候选地址也没有更多内容: {why}")
+              for t in r["tried"]:
+                  if t.get("tries", 1) > 1 and t["state"] == "OK":
+                      print(f"      （{short_url(t['url'], 45)} 第 {t['tries']} 次重试才成功）")
+          n_a = sum(r["status"] == "ACTIVE" for r in results)
+          n_q = sum(r["status"] == "NO_UPDATE" for r in results)
+          n_f = sum(r["status"] == "FAILED" for r in results)
+          print(f"📊 有更新 {n_a} | 无更新 {n_q} | 抓取失败 {n_f} | 切换备用源 {sum(bool(r['switched']) for r in results)} | 本地转发 {len(relay_map)}")
+
+          json.dump(cfg, open("data/config.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          json.dump(results, open("data/source_status.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(f"[Source Resolver] runtime config updated for {changed} source(s); {len(relay_map)} feed(s) await the local relay; status saved to data/source_status.json")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              SI = {"ACTIVE": "✅ 有更新", "NO_UPDATE": "💤 无更新", "FAILED": "❌ 失败"}
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write("## 源状态（解析器，24h 窗口）\n\n| 状态 | 源 | 实际使用的地址 | 24h/共 | 最新 | 说明 |\n|---|---|---|---|---|---|\n")
+                  for r in sorted(results, key=lambda x: ["FAILED", "NO_UPDATE", "ACTIVE"].index(x["status"])):
+                      used = (r.get("chosen") or "—").replace("|", "%7C")[:80]
+                      note = ("; ".join(f"{i + 1}) {t.get('detail', '')}" for i, t in enumerate(r["tried"])) if r["status"] == "FAILED" else
+                              ((RELAY_NOTE.get(r.get("relay", ""), "").strip("（）")) or ("备用源" if r["switched"] else "")))
+                      f.write(f"| {SI[r['status']]} | {r['name'].split(' (')[0]} | {used} | {r['in_window']}/{r.get('entries', 0)} | {r.get('newest', '')} | {note} |\n")
+          PYEOF
+
+      - name: Rescue FAILED YouTube feeds via the YouTube Data API (only if the YOUTUBE_API_KEY secret exists; zero tokens)
+        continue-on-error: true
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          if [ -z "${YOUTUBE_API_KEY}" ]; then
+            echo "[YouTube API Relay] YOUTUBE_API_KEY secret not set -> skipped"
+            exit 0
+          fi
+          mkdir -p relay
+          python3 - << 'PYEOF'
+          import datetime, json, os, re, time, urllib.parse, urllib.request
+          from xml.sax.saxutils import escape
+
+          BASE = os.environ.get("YT_API_BASE", "https://www.googleapis.com/youtube/v3")
+          KEY = os.environ["YOUTUBE_API_KEY"]
+          cfg = json.load(open("data/config.json", encoding="utf-8"))
+          status = json.load(open("data/source_status.json", encoding="utf-8")) if os.path.exists("data/source_status.json") else []
+          failed = {s["name"]: s for s in status if s.get("status") == "FAILED"}
+          now = time.time()
+          now_iso = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          os.makedirs("relay", exist_ok=True)
+          mapping = {}
+          if os.path.exists("relay/_map.json"):
+              try:
+                  mapping = json.load(open("relay/_map.json", encoding="utf-8"))
+              except Exception:
+                  mapping = {}
+          for r in cfg.get("sources", {}).get("rss", []):
+              name = r.get("name", "")
+              if name not in failed:
+                  continue
+              urls = [t.get("url", "") for t in failed[name].get("tried", [])] + [r.get("url", "")]
+              cid = next((m.group(1) for u in urls for m in [re.search(r"(?:channel_id|channels)=(UC[\w-]{22})", u)] if m), None)
+              if not cid:
+                  continue                      # not a YouTube channel source
+              query = urllib.parse.urlencode({"part": "snippet", "playlistId": "UU" + cid[2:], "maxResults": 15, "key": KEY})
+              try:
+                  with urllib.request.urlopen(f"{BASE}/playlistItems?{query}", timeout=20) as resp:
+                      data = json.loads(resp.read().decode("utf-8"))
+              except Exception as e:
+                  print(f"[YouTube API Relay] FAIL {name}: {type(e).__name__} {getattr(e, 'code', '')}")
+                  continue
+              parts, n24, newest = [], 0, ""
+              for it in data.get("items", []):
+                  sn = it.get("snippet", {})
+                  vid = (sn.get("resourceId") or {}).get("videoId")
+                  title = sn.get("title", "")
+                  pub = sn.get("publishedAt", "")
+                  if not vid or not pub or title in ("Private video", "Deleted video"):
+                      continue
+                  try:
+                      ts = datetime.datetime.strptime(pub, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+                      if 0 <= now - ts <= 86400:
+                          n24 += 1
+                      newest = max(newest, pub)
+                  except Exception:
+                      pass
+                  parts.append(
+                      f"<entry><id>yt:video:{vid}</id><title>{escape(title)}</title>"
+                      f"<link rel=\"alternate\" href=\"https://www.youtube.com/watch?v={vid}\"/>"
+                      f"<published>{pub}</published><updated>{pub}</updated>"
+                      f"<author><name>{escape(sn.get('videoOwnerChannelTitle') or name)}</name></author>"
+                      f"<summary>{escape((sn.get('description') or '')[:800])}</summary></entry>")
+              atom = ('<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">'
+                      f"<title>{escape(name)}</title><id>yt:channel:{cid}</id><updated>{now_iso}</updated>" + "".join(parts) + "</feed>")
+              with open(f"relay/{cid}.xml", "w", encoding="utf-8") as f:
+                  f.write(atom)
+              mapping[name] = {"file": f"{cid}.xml", "kind": "api"}
+              st = failed[name]
+              st.update(status="ACTIVE" if n24 else "NO_UPDATE", chosen="YouTube Data API (local relay)", switched=True, relay="api",
+                        in_window=n24, entries=len(parts), newest=newest[5:16].replace("T", " ") + "Z" if newest else "")
+              print(f"[YouTube API Relay] OK   {name}: {len(parts)} video(s), {n24} in the last 24h")
+          json.dump(mapping, open("relay/_map.json", "w", encoding="utf-8"), ensure_ascii=False)
+          json.dump(status, open("data/source_status.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          PYEOF
+
+      - name: Serve relay feeds locally and switch the runtime config (zero tokens)
+        continue-on-error: true
+        run: |
+          if ! ls relay/*.xml > /dev/null 2>&1; then
+            echo "[Relay] nothing to serve"
+            exit 0
+          fi
+          nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory relay > /tmp/relay_server.log 2>&1 &
+          sleep 2
+          python3 - << 'PYEOF'
+          import json, os, urllib.request
+
+          cfg = json.load(open("data/config.json", encoding="utf-8"))
+          mp = json.load(open("relay/_map.json", encoding="utf-8")) if os.path.exists("relay/_map.json") else {}
+          switched, kinds = 0, {}
+          for r in cfg.get("sources", {}).get("rss", []):
+              ent = mp.get(r.get("name", ""))
+              if not ent:
+                  continue
+              local = f"http://127.0.0.1:8765/{ent['file']}"
+              try:
+                  with urllib.request.urlopen(local, timeout=5) as resp:
+                      if resp.status != 200 or not resp.read(1):
+                          raise ValueError("empty response")
+                  r["url"] = local
+                  switched += 1
+                  kinds[ent.get("kind", "?")] = kinds.get(ent.get("kind", "?"), 0) + 1
+              except Exception as e:
+                  print(f"[Relay] local relay check failed for {r['name']}: {e}; keeping its original URL")
+          json.dump(cfg, open("data/config.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(f"[Relay] {switched} feed(s) now served from the local relay: {kinds}")
+          PYEOF
 
       - name: Install Pre-Scoring Budget & 7-Day URL Filter Hook
         run: |
@@ -107,7 +462,7 @@ jobs:
               ZH_NOISE_KW = ["跌停", "涨停", "a股", "港股", "楼市", "房地产", "买房", "白酒", "茅台", "国足", "男足", "演唱会"]
 
               TIER1_CATS = {"ai-official", "ai-agent", "ai-tools", "ai-blog", "ai-youtube"}
-              TIER2_CATS = {"ai-digest", "ai-news-cn", "efficiency-tools", "ai-video", "github-trending"}
+              TIER2_CATS = {"ai-digest", "ai-news-cn", "efficiency-tools", "ai-video", "github-trending", "oss-trending"}
               TIER3_CATS = {"ai-reddit", "tech-business-cn", "business-tech-cn", "english-learning", "project-management"}
 
               def _get_tier(item):
@@ -236,6 +591,93 @@ jobs:
           set -o pipefail
           uv run horizon --hours 24 2>&1 | tee data/horizon_run.log
 
+      - name: Build source status report (zero tokens)
+        if: always() && !cancelled()
+        continue-on-error: true
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, re
+
+          LOG = "data/horizon_run.log"
+          log = open(LOG, encoding="utf-8", errors="ignore").read() if os.path.exists(LOG) else ""
+          status = None
+          if os.path.exists("data/source_status.json"):
+              try:
+                  status = json.load(open("data/source_status.json", encoding="utf-8"))
+              except Exception:
+                  status = None
+
+          meta = {}
+          if os.path.exists("data/source_meta.json"):
+              try:
+                  meta = json.load(open("data/source_meta.json", encoding="utf-8"))
+              except Exception:
+                  meta = {}
+          short = lambda n: n.split(" (")[0]
+          # what Horizon itself saw in this run
+          counts = {m.group(1).strip(): int(m.group(2)) for m in re.finditer(r"^\s+•\s+(.+?):\s+(\d+)\s*$", log, re.M)}
+          hz_fail = {}
+          for n, e in re.findall(r"^\s+(?:RSS Feeds|Telegram|Hacker News|GitHub|Reddit)/(.+?): (\w*Error)", log, re.M):
+              hz_fail[n.strip()] = e
+          native = {label.strip(): int(n) for n, label in re.findall(r"^\s+Found (\d+) items from (.+?)\s*$", log, re.M)}
+
+          failed, quiet, active, switched, mismatch = [], [], [], [], []
+          if status is not None:
+              for s in status:
+                  nm = short(s["name"])
+                  st = s.get("status")
+                  if st == "FAILED":
+                      why = " | ".join(f"{i + 1}) {t.get('detail', '')}" for i, t in enumerate(s.get("tried", []))) or "unknown"
+                      failed.append((nm, why))
+                  elif st == "NO_UPDATE":
+                      quiet.append(nm)
+                  else:
+                      active.append(nm)
+                      if counts.get(s["name"], 0) == 0 and not s["name"].startswith("GitHub events"):
+                          mismatch.append(f"{nm}（解析器测得 {s.get('in_window', 0)} 条，Horizon 未收到）")
+                  if s.get("switched"):
+                      host = re.sub(r"^https?://", "", s.get("chosen") or "").split("/")[0]
+                      switched.append(f"{nm}→{host}")
+                  if s.get("relay") == "stamped":
+                      switched.append(f"{nm}(源无日期，已补全)")
+              known = {s["name"] for s in status}
+              for n, e in hz_fail.items():
+                  if n not in known and not any(n.startswith(k) for k in known):
+                      failed.append((short(n), f"Horizon: {e}"))
+          else:
+              for n, e in hz_fail.items():
+                  failed.append((short(n), f"Horizon: {e}"))
+          # Horizon-native sources (no URL to fall back to): report 'no update' when they simply returned nothing
+          for label in ("Hacker News", "Telegram"):
+              if label in native and native[label] == 0 and not any(label.lower() in n.lower() for n, _ in failed):
+                  quiet.append(label)
+
+          lines = []
+          head = f"📡 源状态(24h): ✅有更新 {len(active)} | 💤无更新 {len(quiet)} | ❌抓取失败 {len(failed)}"
+          if status is None:
+              head += "（源解析器未运行，仅显示 Horizon 自身报错）"
+          lines.append(head)
+          if failed:
+              lines.append("❌ 失败: " + "; ".join(f"{n}（{w}）" for n, w in failed))
+          if switched:
+              lines.append("↪ 已用备用源: " + "; ".join(switched))
+          if quiet:
+              lines.append("💤 无更新: " + "、".join(quiet))
+          if mismatch:
+              lines.append("⚠️ 核对异常: " + "; ".join(mismatch))
+          if status is not None and meta.get("candidates_loaded") is False:
+              lines.append("⚠️ 未找到 data/source_candidates.json：备用源功能未启用，所有源只用主地址")
+          if meta.get("unmatched_keys"):
+              lines.append("⚠️ 候选文件里有名称与配置对不上: " + "、".join(short(k) for k in meta["unmatched_keys"]))
+          text = "\n".join(lines)
+          if len(text) > 1100:
+              text = text[:1090] + "…"
+          os.makedirs("data", exist_ok=True)
+          open("data/source_report.txt", "w", encoding="utf-8").write(text)
+          print("=== [Source Report] ===")
+          print(text)
+          PYEOF
+
       - name: Consolidate, Verify & Prepare Outputs
         id: verify_report
         env:
@@ -280,19 +722,28 @@ jobs:
           except Exception:
               pass
           m_in = m_out = 0
+          # sources Horizon could not fetch (printed by Horizon as "RSS Feeds/<name>: <Error>: ...")
+          failed_sources = []
+          try:
+              for _n, _e in re.findall(r"^\s+(?:RSS Feeds|Telegram|Hacker News|GitHub|Reddit)/(.+?): (\w*Error)", _log, flags=re.M):
+                  failed_sources.append(_n.split(" (")[0][:28])
+          except Exception:
+              pass
 
           def ledger():
               if h_in is None:
                   line = f"💰 Tokens: Horizon UNKNOWN (usage line not found in run log) + Merge in={m_in}/out={m_out} — check the DeepSeek console"
               else:
                   ti, to = h_in + m_in, h_out + m_out
-                  est = (ti + to) * 0.77 / 1_000_000
+                  est = (ti + to) * 0.85 / 1_000_000
                   upper = (ti * 2.0 + to * 8.0) / 1_000_000
-                  line = f"💰 Tokens: Horizon in={h_in}/out={h_out} + Merge in={m_in}/out={m_out} = {ti + to} | ≈¥{est:.2f} (0.77 RMB/M, calibrated on the 2026-11-09 bill; list-price upper bound ¥{upper:.2f})"
-                  if ti + to > 300000:
+                  line = f"💰 Tokens: Horizon in={h_in}/out={h_out} + Merge in={m_in}/out={m_out} = {ti + to} | ≈¥{est:.2f} (0.85 RMB/M, calibrated on the real 2026-11-10 bill: 165,749 tokens = ¥0.14; list-price upper bound ¥{upper:.2f})"
+                  if ti + to > 290000:
                       line += " | ⚠️ OVER BUDGET"
               if not hook_ran:
                   line += " | ⚠️ pre-scoring hook did NOT run"
+              if failed_sources:
+                  line += f"\n⚠️ 抓取失败的源 {len(failed_sources)} 个: " + "; ".join(failed_sources[:8])
               print(line)
               try:
                   with open("data/cost_ledger.txt", "w", encoding="utf-8") as _f:
@@ -362,7 +813,7 @@ jobs:
           primary_urls = set(norm_url(u) for u in re.findall(r"^###\s+\[.*?\]\((https?://[^\s\)]+)\)", raw_md, flags=re.M))
           api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
-          if api_key and (len(primary_urls) > 1 or prev_reports):
+          if api_key and os.environ.get("ENABLE_LLM_MERGE", "1") == "1" and (len(primary_urls) > 1 or prev_reports):
               sys_p = f"""你是一位资深 AI 自媒体主编。请对今日日报执行【跨天同事件去重】与【同日同 AI 结构化合并】：
               1. 跨天去重：对照历史记录，仅当今日资讯与历史记录属于【同一具体事件/同一案例】时才剔除（并在文末最后一行注明 `<!-- DROPPED_URLS: URL1, URL2 -->`）；若是同一 AI 的不同新功能、新玩法或新测评，必须 100% 保留！
               2. 同日同 AI 合并：同一份日报内，每个核心 AI（如 Claude、ChatGPT、Gemini）在目录和正文中只设 1 个主词条；将该 AI 当天其余不同新动态放在该词条正文下方的「📌 **同日该 AI 其他重要动态汇总**：」子列表中，完整保留每条子动态的核心事实与原始链接 `[原题](原始URL)`！
@@ -431,6 +882,9 @@ jobs:
           preview = text[:1500] + ("\n\n...(完整内容请查阅下方 Markdown 附件)" if len(text) > 1500 else "")
           if os.path.exists("data/cost_ledger.txt"):
               preview += "\n\n" + open("data/cost_ledger.txt", encoding="utf-8").read().strip()
+          if os.path.exists("data/source_report.txt"):
+              preview += "\n\n" + open("data/source_report.txt", encoding="utf-8").read().strip()
+          preview = preview[:3900]
           r1 = httpx.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", data={"chat_id": chat_id, "text": preview}, timeout=30.0)
           assert r1.json().get("ok") is True, f"sendMessage failed: {r1.text}"
           with open(file_path, "rb") as f:
@@ -445,8 +899,14 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           JOB_STATUS: ${{ job.status }}
-          READY_FLAG: ${{ steps.verify_report.outputs.ready }}
         run: |
           DATE=$(date +'%Y-%m-%d')
-          MSG="⚠️ Horizon 日报状态提醒 (${DATE})%0A运行状态: ${JOB_STATUS}%0A日报就绪: ${READY_FLAG}%0A说明: 今日无新增资讯或工作流异常，请查看 GitHub Actions 日志。"
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=${MSG}" > /dev/null || true
+          if [ "${JOB_STATUS}" = "failure" ]; then
+            HEAD="⚠️ Horizon 日报流程出错（${DATE}），请查看 Actions 日志。"
+          else
+            HEAD="ℹ️ ${DATE} 没有可推送的日报：24 小时内没有筛出符合条件的新资讯。"
+          fi
+          REPORT=""
+          if [ -f data/source_report.txt ]; then REPORT=$(cat data/source_report.txt); fi
+          MSG=$(printf '%s\n\n%s\n\nhttps://github.com/%s/actions/runs/%s' "${HEAD}" "${REPORT}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}")
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=${MSG}" > /dev/null || true
