@@ -56,9 +56,11 @@
     "urls": [
       "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
       "https://mkusaka.github.io/trending/all/daily/index.xml",
-      "https://raw.githubusercontent.com/mhadidg/gh-trends/refs/heads/mail/feed/rss.xml"
+      "https://raw.githubusercontent.com/mhadidg/gh-trends/refs/heads/mail/feed/rss.xml",
+      "https://raw.githubusercontent.com/isboyjc/github-trending-api/main/data/daily/all.xml"
     ],
-    "stale_days": 7
+    "stale_days": 7,
+    "undated_rescue": true
   },
   "BBC Learning English (英语学习素材)": {
     "urls": [
@@ -69,10 +71,12 @@
   },
   "YouTube - 技术爬爬虾 (AI工具与工作流实操)": {
     "urls": [
+      "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
       "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g"
     ],
     "stale_days": 45,
-    "min_entries": 5
+    "min_entries": 5,
+    "relay": true
   },
   "YouTube - Matt Wolfe (AI工具全网测评)": {
     "urls": [
@@ -81,27 +85,34 @@
       "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti38g"
     ],
     "stale_days": 45,
-    "min_entries": 5
+    "min_entries": 5,
+    "relay": true
   },
   "YouTube - Matthew Berman (Agent与开源AI实操)": {
     "urls": [
+      "https://www.youtube.com/feeds/videos.xml?channel_id=UCawZsQWqfGSbCI5yjkdVkTA",
       "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UCawZsQWqfGSbCI5yjkdVkTA"
     ],
     "stale_days": 45,
-    "min_entries": 5
+    "min_entries": 5,
+    "relay": true
   },
   "YouTube - AI Explained (大模型深度解读)": {
     "urls": [
+      "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
       "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw"
     ],
     "stale_days": 45,
-    "min_entries": 5
+    "min_entries": 5,
+    "relay": true
   },
   "YouTube - Two Minute Papers (AI视觉与视频前沿)": {
     "urls": [
+      "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
       "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg"
     ],
     "stale_days": 45,
-    "min_entries": 5
+    "min_entries": 5,
+    "relay": true
   }
 }

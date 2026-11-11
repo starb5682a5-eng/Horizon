@@ -183,7 +183,7 @@
       },
       {
         "name": "YouTube - 技术爬爬虾 (AI工具与工作流实操)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa6D2k5qhpOI9I-WT8fpd6g",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
@@ -197,21 +197,21 @@
       },
       {
         "name": "YouTube - Matthew Berman (Agent与开源AI实操)",
-        "url": "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UCawZsQWqfGSbCI5yjkdVkTA",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCawZsQWqfGSbCI5yjkdVkTA",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - AI Explained (大模型深度解读)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCNJ1Ymd5yFuUPtn21xtRbbw",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
       },
       {
         "name": "YouTube - Two Minute Papers (AI视觉与视频前沿)",
-        "url": "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg",
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
         "enabled": true,
         "category": "ai-youtube",
         "profile": "ai-creator"
@@ -235,38 +235,6 @@
           ]
         }
       ]
-    },
-    "ossinsight": {
-      "enabled": true,
-      "period": "past_24_hours",
-      "languages": [
-        "All"
-      ],
-      "keywords": [
-        "llm",
-        "agent",
-        "gpt",
-        "claude",
-        "openai",
-        "mcp",
-        "prompt",
-        "diffusion",
-        "copilot",
-        "chatbot",
-        "deepseek",
-        "ollama",
-        "comfyui",
-        "generative ai",
-        "artificial intelligence",
-        "machine learning",
-        "text-to-speech",
-        "text-to-image",
-        "video generation",
-        "image generation"
-      ],
-      "min_stars": 30,
-      "max_items": 10,
-      "category": "oss-trending"
     }
   },
   "collection": {
@@ -320,7 +288,6 @@
         "name": "GitHub 热门开源",
         "limit": 2,
         "categories": [
-          "oss-trending",
           "github-trending"
         ]
       }
