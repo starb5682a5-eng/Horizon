@@ -1,0 +1,101 @@
+{
+  "_readme": "Candidate addresses per source, tried IN ORDER by the 'Resolve source URLs' step of daily-summary.yml. Key = exact feed name in config.github.json. 'stale_days': if the newest entry of a feed is older than this, the address counts as dead and the next one is tried. Sources not listed here use only their own url.",
+  "OpenAI News (官方动态)": {
+    "urls": [
+      "https://openai.com/news/rss.xml"
+    ],
+    "stale_days": 14
+  },
+  "Anthropic News (Claude官方动态)": {
+    "urls": [
+      "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml"
+    ],
+    "stale_days": 30
+  },
+  "Smol AI (全网AI社群与X热点日报)": {
+    "urls": [
+      "https://buttondown.com/ainews/rss",
+      "https://news.smol.ai/rss.xml"
+    ],
+    "stale_days": 14
+  },
+  "TLDR AI (全球AI新工具与产品速递)": {
+    "urls": [
+      "https://bullrich.dev/tldr-rss/ai.rss",
+      "https://tldr.tech/api/rss/ai"
+    ],
+    "stale_days": 10
+  },
+  "Andrej Karpathy Blog (AI科普与深度思考)": {
+    "urls": [
+      "https://karpathy.bearblog.dev/feed/"
+    ],
+    "stale_days": 180
+  },
+  "The Batch (吴恩达 DeepLearning.AI 周刊)": {
+    "urls": [
+      "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_the_batch.xml",
+      "https://kill-the-newsletter.com/feeds/jc8116b7aauska20.xml"
+    ],
+    "stale_days": 21
+  },
+  "LangChain Blog (AI Agent与工作流)": {
+    "urls": [
+      "https://www.langchain.com/blog/rss.xml"
+    ],
+    "stale_days": 30
+  },
+  "Ethan Mollick (One Useful Thing - AI实操洞察)": {
+    "urls": [
+      "https://www.oneusefulthing.org/feed"
+    ],
+    "stale_days": 30
+  },
+  "GitHub Trending (每日热门开源AI工具)": {
+    "urls": [
+      "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
+      "https://mkusaka.github.io/trending/all/daily/index.xml",
+      "https://raw.githubusercontent.com/mhadidg/gh-trends/refs/heads/mail/feed/rss.xml"
+    ],
+    "stale_days": 7
+  },
+  "BBC Learning English (英语学习素材)": {
+    "urls": [
+      "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
+      "https://feeds.bbci.co.uk/learningenglish/english/features/6-minute-english/rss"
+    ],
+    "stale_days": 21
+  },
+  "YouTube - 技术爬爬虾 (AI工具与工作流实操)": {
+    "urls": [
+      "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCa6D2k5qhpOI9I-WT8fpd6g"
+    ],
+    "stale_days": 45
+  },
+  "YouTube - Matt Wolfe (AI工具全网测评)": {
+    "urls": [
+      "https://www.youtube.com/feeds/videos.xml?channel_id=UChpleBmo18P08aKCIgti38g",
+      "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti34w",
+      "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UChpleBmo18P08aKCIgti38g"
+    ],
+    "stale_days": 45
+  },
+  "YouTube - Matthew Berman (Agent与开源AI实操)": {
+    "urls": [
+      "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels=UCawZsQWqfGSbCI5yjkdVkTA"
+    ],
+    "stale_days": 45
+  },
+  "YouTube - AI Explained (大模型深度解读)": {
+    "urls": [
+      "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCNJ1Ymd5yFuUPtn21xtRbbw"
+    ],
+    "stale_days": 45
+  },
+  "YouTube - Two Minute Papers (AI视觉与视频前沿)": {
+    "urls": [
+      "https://api.piped.private.coffee/feed/unauthenticated/rss?channels=UCbfYPyITQ-7l4upoX8nvctg"
+    ],
+    "stale_days": 45
+  }
+}
