@@ -1,8 +1,10 @@
 name: Source Health Check (zero tokens)
 
 # Manual only: Actions tab -> "Source Health Check (zero tokens)" -> Run workflow.
-# Fetches every RSS source in data/config.github.json exactly like a feed reader would and reports
-# status / entries / items inside the window / newest item. It never calls DeepSeek, so it costs 0 tokens.
+# 0) resolver dry-run: tries every source's candidate addresses in order (data/source_candidates.json) and shows which one the daily run would use,
+# A) probes every RSS/GitHub source in data/config.github.json, B) tests replacement candidates
+# (new Smol AI feed, YouTube mirrors, optional YouTube Data API key, OSS Insight), C) checks which
+# Horizon features this repository's source supports. It never calls DeepSeek -> 0 tokens.
 
 on:
   workflow_dispatch:
@@ -11,6 +13,10 @@ on:
         description: "Freshness window in hours (the daily workflow uses 24)"
         required: false
         default: "24"
+      extra_urls:
+        description: "Optional: extra feed URLs to test, one per line"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -23,6 +29,8 @@ jobs:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
       WINDOW_HOURS: ${{ github.event.inputs.hours || '24' }}
+      EXTRA_URLS: ${{ github.event.inputs.extra_urls }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -35,14 +43,155 @@ jobs:
       - name: Install httpx and feedparser
         run: pip install --quiet httpx feedparser
 
-      - name: Probe every source (no tokens)
+      - name: Resolver dry-run (exactly what the daily run will decide; no tokens)
+        run: |
+          cp data/config.github.json data/config.json
+          python - << 'PYEOF'
+          import calendar, concurrent.futures as cf, datetime, json, os, time
+          import feedparser
+          import httpx
+
+          HOURS = 24.0   # same window as `horizon --hours 24`
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+          NOW = time.time()
+          cfg = json.load(open("data/config.json", encoding="utf-8"))
+          cands = {}
+          if os.path.exists("data/source_candidates.json"):
+              cands = {k: v for k, v in json.load(open("data/source_candidates.json", encoding="utf-8")).items() if not k.startswith("_")}
+
+
+          def short_url(u, n=70):
+              u = u.replace("https://", "").replace("http://", "")
+              return u if len(u) <= n else u[:n - 1] + "…"
+
+
+          def evaluate(url, stale_days):
+              """Fetch one candidate. 'OK' = fetchable, parseable, dated and not stale. Everything else = 'FAIL' with the reason."""
+              last = "request failed"
+              for attempt in (1, 2):
+                  try:
+                      resp = httpx.get(url, headers={"User-Agent": UA}, timeout=25.0, follow_redirects=True)
+                  except Exception as e:
+                      last = type(e).__name__
+                      time.sleep(2)
+                      continue
+                  if resp.status_code != 200:
+                      last = f"HTTP {resp.status_code}"
+                      if attempt == 1 and resp.status_code in (429, 500, 502, 503, 504, 520, 522, 524, 526):
+                          time.sleep(2)
+                          continue
+                      return {"state": "FAIL", "detail": last}
+                  d = feedparser.parse(resp.text)
+                  n = len(d.entries)
+                  if n == 0:
+                      return {"state": "FAIL", "detail": "HTTP 200 but no entries (empty feed or not a feed)"}
+                  ts = []
+                  for e in d.entries:
+                      t = e.get("published_parsed") or e.get("updated_parsed")
+                      if t:
+                          ts.append(calendar.timegm(t))
+                  if not ts:
+                      return {"state": "FAIL", "detail": f"{n} entries but none has a date (Horizon discards undated items)"}
+                  newest = max(ts)
+                  age_d = (NOW - newest) / 86400
+                  if age_d > stale_days:
+                      return {"state": "FAIL", "detail": f"newest entry is {age_d:.0f} days old (> {stale_days:g}d: stale or dead mirror)"}
+                  return {"state": "OK", "entries": n, "newest": newest,
+                          "in_window": sum(1 for t in ts if 0 <= NOW - t <= HOURS * 3600)}
+              return {"state": "FAIL", "detail": last}
+
+
+          def resolve(feed):
+              name = feed["name"]
+              spec = cands.get(name, {})
+              urls = [u for u in (spec.get("urls") or [feed["url"]]) if u]
+              stale = float(spec.get("stale_days", 30))
+              tried = []
+              for u in urls:
+                  r = evaluate(u, stale)
+                  tried.append({"url": u, "state": r["state"], "detail": r.get("detail", "")})
+                  if r["state"] == "OK":
+                      return {"name": name, "category": feed.get("category", "-"), "status": "ACTIVE" if r["in_window"] > 0 else "NO_UPDATE",
+                              "primary": urls[0], "chosen": u, "switched": u != urls[0], "in_window": r["in_window"],
+                              "newest": datetime.datetime.fromtimestamp(r["newest"], datetime.timezone.utc).strftime("%m-%d %H:%MZ"),
+                              "tried": tried}
+              return {"name": name, "category": feed.get("category", "-"), "status": "FAILED", "primary": urls[0], "chosen": None,
+                      "switched": False, "in_window": 0, "newest": "", "tried": tried}
+
+
+          feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
+          print(f"🧭 === [Source Resolver] {len(feeds)} RSS sources | primary first, then fallbacks | window {HOURS:g}h | zero tokens ===")
+          with cf.ThreadPoolExecutor(max_workers=8) as ex:
+              results = list(ex.map(resolve, feeds))
+
+          by_name = {r["name"]: r for r in results}
+          changed = 0
+          for f in cfg["sources"]["rss"]:
+              r = by_name.get(f["name"])
+              if r and r["chosen"] and r["chosen"] != f["url"]:
+                  f["url"] = r["chosen"]
+                  changed += 1
+
+          # GitHub user-event sources are not URL feeds: report their status only
+          for src in cfg.get("sources", {}).get("github", []) or []:
+              if isinstance(src, dict) and src.get("type") == "user_events" and src.get("enabled", True):
+                  user = src.get("username", "")
+                  res = {"name": f"GitHub events: {user}", "category": "github", "primary": "", "chosen": None, "switched": False,
+                         "in_window": 0, "newest": "", "tried": []}
+                  try:
+                      resp = httpx.get(f"https://api.github.com/users/{user}/events/public",
+                                       headers={"User-Agent": "horizon-source-resolver"}, timeout=20.0)
+                      if resp.status_code == 200:
+                          ev = resp.json()
+                          n24 = 0
+                          for e in ev:
+                              try:
+                                  if NOW - calendar.timegm(time.strptime(e["created_at"], "%Y-%m-%dT%H:%M:%SZ")) <= HOURS * 3600:
+                                      n24 += 1
+                              except Exception:
+                                  pass
+                          res.update(status="ACTIVE" if n24 else "NO_UPDATE", in_window=n24)
+                      else:
+                          res.update(status="FAILED", tried=[{"url": "api.github.com", "state": "FAIL", "detail": f"HTTP {resp.status_code}"}])
+                  except Exception as e:
+                      res.update(status="FAILED", tried=[{"url": "api.github.com", "state": "FAIL", "detail": type(e).__name__}])
+                  results.append(res)
+
+          ICON = {"ACTIVE": "✅ 有更新", "NO_UPDATE": "💤 无更新", "FAILED": "❌ 失败  "}
+          for r in results:
+              nm = r["name"].split(" (")[0]
+              if r["status"] == "FAILED":
+                  why = " | ".join(f"[{i + 1}] {t['detail']}" for i, t in enumerate(r["tried"]))
+                  print(f"{ICON['FAILED']} {nm}: {why}")
+              else:
+                  line = f"{ICON[r['status']]} {nm}: "
+                  line += f"24h 内 {r['in_window']} 条" if r["status"] == "ACTIVE" else f"能正常抓取，24h 内无新条目（最新 {r['newest'] or '—'}）"
+                  print(line)
+                  if r["switched"]:
+                      fails = "; ".join(f"{short_url(t['url'], 45)}: {t['detail']}" for t in r["tried"] if t["state"] == "FAIL")
+                      print(f"      ↪ 已切换备用源 → {short_url(r['chosen'])}   （此前失败: {fails}）")
+          n_a = sum(r["status"] == "ACTIVE" for r in results)
+          n_q = sum(r["status"] == "NO_UPDATE" for r in results)
+          n_f = sum(r["status"] == "FAILED" for r in results)
+          print(f"📊 有更新 {n_a} | 无更新 {n_q} | 抓取失败 {n_f} | 切换备用源 {sum(bool(r['switched']) for r in results)}")
+
+          json.dump(cfg, open("data/config.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          json.dump(results, open("data/source_status.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print(f"[Source Resolver] runtime config updated for {changed} source(s); status saved to data/source_status.json")
+          PYEOF
+
+      - name: Probe sources and candidates (no tokens)
         run: |
           python - << 'PYEOF'
-          import calendar, concurrent.futures as cf, datetime, json, os, re, time
+          import calendar, concurrent.futures as cf, datetime, glob, json, os, re, time
           import feedparser
           import httpx
 
           HOURS = float(os.environ.get("WINDOW_HOURS") or 24)
+          YT_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
+          EXTRA = [u.strip() for u in (os.environ.get("EXTRA_URLS") or "").splitlines() if u.strip().startswith("http")]
+          # Observed in real runs: Horizon fetches sources that answer 403 to a bare python UA (QbitAI, Scrum.org), so a browser UA is the realistic baseline.
           BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                         "Chrome/124.0.0.0 Safari/537.36")
           NOW = time.time()
@@ -50,11 +199,10 @@ jobs:
           feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
 
 
-          def fetch(url, ua=None):
-              """One request, parsed like Horizon would: returns a dict of facts (never raises)."""
-              headers = {"User-Agent": ua} if ua else {}
+          def fetch(url, ua=BROWSER_UA):
+              """One request, parsed like a feed reader would: returns a dict of facts (never raises)."""
               try:
-                  resp = httpx.get(url, headers=headers, timeout=20.0, follow_redirects=True)
+                  resp = httpx.get(url, headers={"User-Agent": ua} if ua else {}, timeout=20.0, follow_redirects=True)
               except Exception as e:
                   return {"ok": False, "err": f"{type(e).__name__}: {str(e)[:70]}"}
               ctype = resp.headers.get("content-type", "")
@@ -68,14 +216,12 @@ jobs:
                       ts.append(calendar.timegm(t))
                   else:
                       nodate += 1
-              feed_meta = getattr(d, "feed", None) or {}
               return {
                   "ok": True, "ctype": ctype, "entries": len(d.entries), "nodate": nodate,
                   "in_window": sum(1 for t in ts if 0 <= NOW - t <= HOURS * 3600),
                   "in_7d": sum(1 for t in ts if 0 <= NOW - t <= 7 * 86400),
                   "future": sum(1 for t in ts if t - NOW > 3600),
                   "newest": max(ts) if ts else None,
-                  "title": (feed_meta.get("title") or "")[:40],
               }
 
 
@@ -98,98 +244,170 @@ jobs:
               return s
 
 
-          def classify(r_def, r_br):
-              if r_def["ok"]:
-                  if r_def["entries"] == 0:
-                      return "EMPTY", r_def
-                  if r_def["nodate"] == r_def["entries"]:
-                      return "NO-DATE", r_def
-                  if r_def["in_window"] > 0:
-                      return "ACTIVE", r_def
-                  if r_def["in_7d"] > 0:
-                      return "QUIET", r_def
-                  age_d = (NOW - r_def["newest"]) / 86400 if r_def["newest"] else 9999
-                  return ("DORMANT" if age_d > 30 else "QUIET"), r_def
-              if r_br["ok"]:
-                  return "UA-BLOCKED", r_br
-              return "FAIL", r_def
+          def classify(r):
+              if not r["ok"]:
+                  return "FAIL"
+              if r["entries"] == 0:
+                  return "EMPTY"
+              if r["nodate"] == r["entries"]:
+                  return "NO-DATE"
+              if r["in_window"] > 0:
+                  return "ACTIVE"
+              if r["in_7d"] > 0:
+                  return "QUIET"
+              age_d = (NOW - r["newest"]) / 86400 if r["newest"] else 9999
+              return "DORMANT" if age_d > 30 else "QUIET"
 
 
-          def probe(r):
-              name, url, cat = r.get("name", "?"), r["url"], r.get("category", "-")
-              r_def = fetch(url)               # default httpx User-Agent (what Horizon is likely to send)
-              r_br = fetch(url, BROWSER_UA)    # browser User-Agent
-              cls, main = classify(r_def, r_br)
-              extras = []
-              m = re.search(r"youtube\.com/feeds/videos\.xml\?channel_id=(UC[\w-]{22})$", url)
-              if m and cls in ("FAIL", "EMPTY"):
-                  cid = m.group(1)
-                  for label, u in (("uploads UULF", f"https://www.youtube.com/feeds/videos.xml?playlist_id=UULF{cid[2:]}"),
-                                   ("uploads UU", f"https://www.youtube.com/feeds/videos.xml?playlist_id=UU{cid[2:]}")):
-                      x = fetch(u, BROWSER_UA)
-                      extras.append(f"    ↳ fallback {label}: {facts(x)}")
-              return {"name": name, "cat": cat, "url": url, "cls": cls, "main": main, "def": r_def, "br": r_br, "extras": extras}
+          def probe_feed(r):
+              url = r["url"]
+              main = fetch(url)
+              note = ""
+              if main["ok"]:
+                  bare = fetch(url, ua=None)       # what a bare python client would get (FYI only)
+                  if not bare["ok"]:
+                      note = f"FYI: a bare python client gets {bare['err']} here; Horizon itself has fetched such sources fine in real runs"
+              return {"name": r.get("name", "?"), "cat": r.get("category", "-"), "cls": classify(main), "main": main, "note": note}
 
 
           def probe_github(src):
               user = src.get("username", "")
-              url = f"https://api.github.com/users/{user}/events/public"
               try:
-                  resp = httpx.get(url, headers={"User-Agent": "horizon-health-check"}, timeout=20.0)
+                  resp = httpx.get(f"https://api.github.com/users/{user}/events/public",
+                                   headers={"User-Agent": "horizon-health-check"}, timeout=20.0)
                   if resp.status_code != 200:
-                      return {"name": f"GitHub events: {user}", "cat": "github", "url": url, "cls": "FAIL",
-                              "main": {"ok": False, "err": f"HTTP {resp.status_code}"}, "def": {}, "br": {}, "extras": []}
-                  ev = resp.json()
-                  ts = []
-                  for e in ev:
+                      main = {"ok": False, "err": f"HTTP {resp.status_code}"}
+                  else:
+                      ev = resp.json()
+                      ts = []
+                      for e in ev:
+                          try:
+                              ts.append(calendar.timegm(time.strptime(e["created_at"], "%Y-%m-%dT%H:%M:%SZ")))
+                          except Exception:
+                              pass
+                      main = {"ok": True, "entries": len(ev), "nodate": 0, "future": 0,
+                              "in_window": sum(1 for t in ts if 0 <= NOW - t <= HOURS * 3600),
+                              "in_7d": sum(1 for t in ts if 0 <= NOW - t <= 7 * 86400), "newest": max(ts) if ts else None}
+              except Exception as e:
+                  main = {"ok": False, "err": f"{type(e).__name__}: {str(e)[:70]}"}
+              return {"name": f"GitHub events: {user}", "cat": "github", "cls": classify(main), "main": main, "note": ""}
+
+
+          ICON = {"ACTIVE": "✅", "QUIET": "💤", "DORMANT": "🪦", "NO-DATE": "❓", "EMPTY": "⚠️", "FAIL": "❌"}
+          order = ["FAIL", "EMPTY", "NO-DATE", "DORMANT", "QUIET", "ACTIVE"]
+          print(f"📡 === [Source Health Check] window={HOURS:g}h | now={datetime.datetime.fromtimestamp(NOW, datetime.timezone.utc):%Y-%m-%d %H:%MZ} | zero tokens ===")
+
+          with cf.ThreadPoolExecutor(max_workers=8) as ex:
+              results = list(ex.map(probe_feed, feeds))
+          for src in cfg.get("sources", {}).get("github", []) or []:
+              if isinstance(src, dict) and src.get("type") == "user_events" and src.get("enabled", True):
+                  results.append(probe_github(src))
+          results.sort(key=lambda x: order.index(x["cls"]))
+          print("\n── A. Sources currently in data/config.github.json ──")
+          for x in results:
+              print(f"{ICON[x['cls']]} [{x['cls']:<8}] {x['name'][:52]} ({x['cat']})")
+              print(f"      {facts(x['main'])}")
+              if x["note"]:
+                  print(f"      {x['note']}")
+          counts = {k: sum(1 for x in results if x["cls"] == k) for k in order}
+          print("\n📊 " + " | ".join(f"{ICON[k]} {k}={counts[k]}" for k in order))
+          print("   ACTIVE = items inside the window | QUIET = reachable, nothing new in the window | DORMANT = nothing for 30+ days (replace) |")
+          print("   FAIL / EMPTY / NO-DATE = Horizon gets nothing from this source.")
+
+          # ---------- B. replacement candidates (nothing here is used by the daily run; this only tells you what WOULD work) ----------
+          print("\n── B. Replacement candidates ──")
+          cand = [
+              ("Smol AI (new home)", "https://news.smol.ai/rss.xml"),
+              ("Latent Space: AI News (same daily briefing)", "https://latent.space/feeds/news.xml"),
+          ]
+          yt_ids = []
+          for r in feeds:
+              m = re.search(r"youtube\.com/feeds/videos\.xml\?channel_id=(UC[\w-]{22})$", r.get("url", ""))
+              if m:
+                  yt_ids.append((r.get("name", m.group(1)), m.group(1)))
+          for name, cid in yt_ids[:2]:
+              short = name.split(" (")[0]
+              for label, tpl in (("RSSHub@rssforever", "https://rsshub.rssforever.com/youtube/channel/{cid}"),
+                                 ("RSSHub@rsshub.app", "https://rsshub.app/youtube/channel/{cid}"),
+                                 ("Invidious@yewtu.be", "https://yewtu.be/feed/channel/{cid}"),
+                                 ("Invidious@nadeko", "https://inv.nadeko.net/feed/channel/{cid}"),
+                                 ("Piped@private.coffee", "https://piped.private.coffee/feed/unauthenticated/rss?channels={cid}"),
+                                 ("Piped@kavin", "https://pipedapi.kavin.rocks/feed/unauthenticated/rss?channels={cid}")):
+                  cand.append((f"{short} via {label}", tpl.format(cid=cid)))
+          for u in EXTRA:
+              cand.append(("extra_urls input", u))
+
+
+          def probe_cand(item):
+              label, url = item
+              r = fetch(url)
+              return (label, url, r, classify(r))
+
+
+          with cf.ThreadPoolExecutor(max_workers=8) as ex:
+              cres = list(ex.map(probe_cand, cand))
+          for label, url, r, cls in cres:
+              print(f"{ICON[cls]} [{cls:<8}] {label}")
+              print(f"      {facts(r)}")
+              print(f"      {url[:110]}")
+
+          # YouTube Data API (only if the repository secret YOUTUBE_API_KEY exists)
+          if yt_ids and YT_KEY:
+              cid = yt_ids[0][1]
+              try:
+                  resp = httpx.get("https://www.googleapis.com/youtube/v3/playlistItems",
+                                   params={"part": "snippet", "playlistId": "UU" + cid[2:], "maxResults": 5, "key": YT_KEY}, timeout=20.0)
+                  if resp.status_code == 200:
+                      items = resp.json().get("items", [])
+                      newest = max((it["snippet"]["publishedAt"] for it in items), default="n/a")
+                      print(f"✅ [API      ] YouTube Data API key works: {len(items)} item(s) for {yt_ids[0][0].split(' (')[0]}, newest publishedAt={newest}")
+                  else:
+                      reason = ""
                       try:
-                          ts.append(calendar.timegm(time.strptime(e["created_at"], "%Y-%m-%dT%H:%M:%SZ")))
+                          reason = resp.json()["error"]["errors"][0]["reason"]
                       except Exception:
                           pass
-                  n24 = sum(1 for t in ts if 0 <= NOW - t <= HOURS * 3600)
-                  main = {"ok": True, "entries": len(ev), "nodate": 0, "future": 0, "in_window": n24,
-                          "in_7d": sum(1 for t in ts if 0 <= NOW - t <= 7 * 86400), "newest": max(ts) if ts else None}
-                  cls = "ACTIVE" if n24 else "QUIET"
+                      print(f"❌ [API      ] YouTube Data API answered HTTP {resp.status_code} {reason} (key invalid, API not enabled, or quota)")
               except Exception as e:
-                  main, cls = {"ok": False, "err": f"{type(e).__name__}: {str(e)[:70]}"}, "FAIL"
-              return {"name": f"GitHub events: {user}", "cat": "github", "url": url, "cls": cls, "main": main, "def": {}, "br": {}, "extras": []}
+                  print(f"❌ [API      ] YouTube Data API request failed: {type(e).__name__}")
+          elif yt_ids:
+              print("ℹ️ [API      ] no YOUTUBE_API_KEY repository secret set (only needed if no free mirror above works)")
 
+          # OSS Insight (Horizon's native heat-based GitHub source)
+          try:
+              resp = httpx.get("https://api.ossinsight.io/v1/trends/repos/", params={"period": "past_24_hours", "language": "All"},
+                               headers={"User-Agent": BROWSER_UA}, timeout=25.0)
+              if resp.status_code == 200:
+                  body = resp.json()
+                  rows = (body.get("data") or {}).get("rows") if isinstance(body, dict) else None
+                  rows = rows or []
+                  names = ", ".join(str(r_.get("repo_name")) for r_ in rows[:4])
+                  print(f"✅ [OSSInsight] API reachable: {len(rows)} trending repos (past 24h). Top: {names}")
+              else:
+                  print(f"❌ [OSSInsight] API answered HTTP {resp.status_code}")
+          except Exception as e:
+              print(f"❌ [OSSInsight] request failed: {type(e).__name__}: {str(e)[:60]}")
 
-          print(f"📡 === [Source Health Check] window={HOURS:g}h | now={datetime.datetime.fromtimestamp(NOW, datetime.timezone.utc):%Y-%m-%d %H:%MZ} | zero tokens ===")
-          jobs = list(feeds)
-          with cf.ThreadPoolExecutor(max_workers=8) as ex:
-              results = list(ex.map(probe, jobs))
-              for src in cfg.get("sources", {}).get("github", []) or []:
-                  if isinstance(src, dict) and src.get("type") == "user_events" and src.get("enabled", True):
-                      results.append(probe_github(src))
-
-          ICON = {"ACTIVE": "✅", "QUIET": "💤", "DORMANT": "🪦", "NO-DATE": "❓", "EMPTY": "⚠️", "UA-BLOCKED": "🚫", "FAIL": "❌"}
-          order = ["FAIL", "UA-BLOCKED", "EMPTY", "NO-DATE", "DORMANT", "QUIET", "ACTIVE"]
-          results.sort(key=lambda x: order.index(x["cls"]))
-          for x in results:
-              print(f"{ICON[x['cls']]} [{x['cls']:<10}] {x['name'][:50]} ({x['cat']})")
-              print(f"      {facts(x['main'])}")
-              if x["cls"] == "UA-BLOCKED":
-                  print(f"      default-UA result: {facts(x['def'])}  → works only with a browser User-Agent")
-              if x["cls"] == "FAIL" and x["br"] and not x["br"].get("ok", True):
-                  print(f"      browser-UA result: {facts(x['br'])}")
-              if x["cls"] == "EMPTY" and "html" in (x["main"].get("ctype", "") or "").lower():
-                  print("      response is an HTML page, not a feed")
-              for line in x["extras"]:
-                  print(line)
-
-          counts = {k: sum(1 for x in results if x["cls"] == k) for k in order}
-          print("\n📊 === [Summary] ===")
-          print(" | ".join(f"{ICON[k]} {k}={counts[k]}" for k in order))
-          print("Reading guide: ACTIVE = has items inside the window (Horizon can see them) | QUIET = reachable, simply nothing new in the window |")
-          print("DORMANT = reachable but nothing for 30+ days (candidate to replace) | FAIL / UA-BLOCKED / EMPTY / NO-DATE = Horizon gets nothing from this source (it may or may not print an error).")
+          # ---------- C. does this repository's Horizon version support what the new config needs? ----------
+          print("\n── C. Horizon capability check (reads the checked-out source) ──")
+          blob = ""
+          for p in glob.glob("src/**/*.py", recursive=True):
+              try:
+                  blob += open(p, encoding="utf-8", errors="ignore").read().lower() + "\n"
+              except Exception:
+                  pass
+          for label, needle in (("ossinsight source", "ossinsight"), ("balanced digest category_groups", "category_groups"),
+                                ("google_news native source", "google_news")):
+              print(f"{'✅' if needle in blob else '❌'} {label}: {'present' if needle in blob else 'NOT found in src/'}")
 
           summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
           if summary_path:
               with open(summary_path, "a", encoding="utf-8") as f:
-                  f.write(f"## Source health (window {HOURS:g}h, zero tokens)\n\n")
-                  f.write("| Status | Source | Details |\n|---|---|---|\n")
+                  f.write(f"## Source health (window {HOURS:g}h, zero tokens)\n\n| Status | Source | Details |\n|---|---|---|\n")
                   for x in results:
                       f.write(f"| {ICON[x['cls']]} {x['cls']} | {x['name'][:50]} | {facts(x['main'])} |\n")
+                  f.write("\n### Replacement candidates\n\n| Status | Candidate | Details |\n|---|---|---|\n")
+                  for label, url, r, cls in cres:
+                      f.write(f"| {ICON[cls]} {cls} | {label} | {facts(r)} |\n")
 
           PYEOF
