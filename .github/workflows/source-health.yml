@@ -56,9 +56,14 @@ jobs:
                 "Chrome/124.0.0.0 Safari/537.36")
           NOW = time.time()
           cfg = json.load(open("data/config.json", encoding="utf-8"))
-          cands = {}
-          if os.path.exists("data/source_candidates.json"):
+          cands, cands_loaded = {}, False
+          try:
               cands = {k: v for k, v in json.load(open("data/source_candidates.json", encoding="utf-8")).items() if not k.startswith("_")}
+              cands_loaded = True
+          except FileNotFoundError:
+              print("⚠️ data/source_candidates.json NOT FOUND -> fallback addresses are DISABLED; every source uses only its own url. Put the file next to config.github.json in the data/ folder.")
+          except Exception as e:
+              print(f"⚠️ data/source_candidates.json could not be read ({type(e).__name__}) -> fallback addresses are DISABLED")
 
 
           def short_url(u, n=70):
@@ -66,7 +71,7 @@ jobs:
               return u if len(u) <= n else u[:n - 1] + "…"
 
 
-          def evaluate(url, stale_days):
+          def evaluate(url, stale_days, min_entries=1):
               """Fetch one candidate. 'OK' = fetchable, parseable, dated and not stale. Everything else = 'FAIL' with the reason."""
               last = "request failed"
               for attempt in (1, 2):
@@ -86,6 +91,8 @@ jobs:
                   n = len(d.entries)
                   if n == 0:
                       return {"state": "FAIL", "detail": "HTTP 200 but no entries (empty feed or not a feed)"}
+                  if n < min_entries:
+                      return {"state": "FAIL", "detail": f"only {n} entr{'y' if n == 1 else 'ies'} (a healthy feed returns >= {min_entries}; limited or stale mirror)"}
                   ts = []
                   for e in d.entries:
                       t = e.get("published_parsed") or e.get("updated_parsed")
@@ -107,17 +114,29 @@ jobs:
               spec = cands.get(name, {})
               urls = [u for u in (spec.get("urls") or [feed["url"]]) if u]
               stale = float(spec.get("stale_days", 30))
-              tried = []
+              min_entries = int(spec.get("min_entries", 1))
+              tried, quiet = [], None
+
+              def done(u, r, note=""):
+                  return {"name": name, "category": feed.get("category", "-"), "status": "ACTIVE" if r["in_window"] > 0 else "NO_UPDATE",
+                          "primary": urls[0], "chosen": u, "switched": u != urls[0], "in_window": r["in_window"], "note": note,
+                          "newest": datetime.datetime.fromtimestamp(r["newest"], datetime.timezone.utc).strftime("%m-%d %H:%MZ"),
+                          "tried": tried}
+
               for u in urls:
-                  r = evaluate(u, stale)
-                  tried.append({"url": u, "state": r["state"], "detail": r.get("detail", "")})
-                  if r["state"] == "OK":
-                      return {"name": name, "category": feed.get("category", "-"), "status": "ACTIVE" if r["in_window"] > 0 else "NO_UPDATE",
-                              "primary": urls[0], "chosen": u, "switched": u != urls[0], "in_window": r["in_window"],
-                              "newest": datetime.datetime.fromtimestamp(r["newest"], datetime.timezone.utc).strftime("%m-%d %H:%MZ"),
-                              "tried": tried}
+                  r = evaluate(u, stale, min_entries)
+                  tried.append({"url": u, "state": r["state"], "detail": r.get("detail", ""),
+                                "in_window": r.get("in_window") if r["state"] == "OK" else None})
+                  if r["state"] != "OK":
+                      continue
+                  if r["in_window"] > 0:
+                      return done(u, r, "primary had nothing new, fallback has" if quiet else "")
+                  if quiet is None:
+                      quiet = (u, r)          # reachable but nothing new: keep looking for a fresher candidate, else this one is "no update"
+              if quiet:
+                  return done(quiet[0], quiet[1])
               return {"name": name, "category": feed.get("category", "-"), "status": "FAILED", "primary": urls[0], "chosen": None,
-                      "switched": False, "in_window": 0, "newest": "", "tried": tried}
+                      "switched": False, "in_window": 0, "newest": "", "note": "", "tried": tried}
 
 
           feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
@@ -125,6 +144,10 @@ jobs:
           with cf.ThreadPoolExecutor(max_workers=8) as ex:
               results = list(ex.map(resolve, feeds))
 
+          unmatched = sorted(k for k in cands if k not in {f["name"] for f in feeds})
+          if unmatched:
+              print("⚠️ source_candidates.json has names that match no source in config.github.json (typo or renamed source): " + "; ".join(unmatched))
+          json.dump({"candidates_loaded": cands_loaded, "unmatched_keys": unmatched}, open("data/source_meta.json", "w", encoding="utf-8"), ensure_ascii=False)
           by_name = {r["name"]: r for r in results}
           changed = 0
           for f in cfg["sources"]["rss"]:
@@ -169,8 +192,8 @@ jobs:
                   line += f"24h 内 {r['in_window']} 条" if r["status"] == "ACTIVE" else f"能正常抓取，24h 内无新条目（最新 {r['newest'] or '—'}）"
                   print(line)
                   if r["switched"]:
-                      fails = "; ".join(f"{short_url(t['url'], 45)}: {t['detail']}" for t in r["tried"] if t["state"] == "FAIL")
-                      print(f"      ↪ 已切换备用源 → {short_url(r['chosen'])}   （此前失败: {fails}）")
+                      fails = "; ".join(f"{short_url(t['url'], 45)}: {t['detail'] or ('24h 内 0 条' if t.get('in_window') == 0 else '')}" for t in r["tried"] if t["url"] != r["chosen"])
+                      print(f"      ↪ 已切换备用源 → {short_url(r['chosen'])}   （此前: {fails}）")
           n_a = sum(r["status"] == "ACTIVE" for r in results)
           n_q = sum(r["status"] == "NO_UPDATE" for r in results)
           n_f = sum(r["status"] == "FAILED" for r in results)
@@ -373,20 +396,35 @@ jobs:
           elif yt_ids:
               print("ℹ️ [API      ] no YOUTUBE_API_KEY repository secret set (only needed if no free mirror above works)")
 
-          # OSS Insight (Horizon's native heat-based GitHub source)
-          try:
-              resp = httpx.get("https://api.ossinsight.io/v1/trends/repos/", params={"period": "past_24_hours", "language": "All"},
-                               headers={"User-Agent": BROWSER_UA}, timeout=25.0)
-              if resp.status_code == 200:
-                  body = resp.json()
-                  rows = (body.get("data") or {}).get("rows") if isinstance(body, dict) else None
-                  rows = rows or []
-                  names = ", ".join(str(r_.get("repo_name")) for r_ in rows[:4])
-                  print(f"✅ [OSSInsight] API reachable: {len(rows)} trending repos (past 24h). Top: {names}")
-              else:
-                  print(f"❌ [OSSInsight] API answered HTTP {resp.status_code}")
-          except Exception as e:
-              print(f"❌ [OSSInsight] request failed: {type(e).__name__}: {str(e)[:60]}")
+          # OSS Insight (Horizon's native heat-based GitHub source): try several periods and show the response shape when nothing comes back
+          def ossinsight_check():
+              for period in ("past_24_hours", "past_week"):
+                  try:
+                      resp = httpx.get("https://api.ossinsight.io/v1/trends/repos/", params={"period": period, "language": "All"},
+                                       headers={"User-Agent": BROWSER_UA}, timeout=25.0)
+                  except Exception as e:
+                      print(f"❌ [OSSInsight] {period}: request failed: {type(e).__name__}: {str(e)[:60]}")
+                      continue
+                  if resp.status_code != 200:
+                      print(f"❌ [OSSInsight] {period}: HTTP {resp.status_code}")
+                      continue
+                  try:
+                      body = resp.json()
+                  except Exception:
+                      print(f"❌ [OSSInsight] {period}: HTTP 200 but not JSON: {resp.text[:120]!r}")
+                      continue
+                  data = body.get("data") if isinstance(body, dict) else None
+                  rows = (data.get("rows") if isinstance(data, dict) else data if isinstance(data, list) else None) or []
+                  if rows:
+                      names = ", ".join(str(r_.get("repo_name")) for r_ in rows[:4] if isinstance(r_, dict))
+                      print(f"✅ [OSSInsight] {period}: {len(rows)} trending repos. Top: {names}")
+                  else:
+                      keys = list(body.keys())[:6] if isinstance(body, dict) else type(body).__name__
+                      dkeys = list(data.keys())[:6] if isinstance(data, dict) else type(data).__name__
+                      print(f"⚠️ [OSSInsight] {period}: HTTP 200 but 0 rows (top-level keys={keys}, data={dkeys}); first bytes: {resp.text[:160]!r}")
+
+
+          ossinsight_check()
 
           # ---------- C. does this repository's Horizon version support what the new config needs? ----------
           print("\n── C. Horizon capability check (reads the checked-out source) ──")
