@@ -27,7 +27,7 @@
       {
         "type": "user_events",
         "username": "karpathy",
-        "enabled": true,
+        "enabled": false,
         "profile": "ai-creator"
       }
     ],
@@ -161,7 +161,7 @@
       {
         "name": "GitHub Trending (每日热门开源AI工具)",
         "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
-        "enabled": true,
+        "enabled": false,
         "category": "github-trending",
         "profile": "ai-creator"
       },
@@ -282,13 +282,6 @@
         "categories": [
           "english-learning",
           "project-management"
-        ]
-      },
-      "oss_trending": {
-        "name": "GitHub 热门开源",
-        "limit": 2,
-        "categories": [
-          "github-trending"
         ]
       }
     },
