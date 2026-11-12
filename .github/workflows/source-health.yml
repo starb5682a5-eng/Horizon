@@ -2,7 +2,8 @@ name: Source Health Check (zero tokens)
 
 # Manual only: Actions tab -> "Source Health Check (zero tokens)" -> Run workflow.
 # A) the resolver dry-run runs EXACTLY the logic of the daily run (primary -> fallbacks, retries, relay) and prints a per-source verdict,
-#    plus a table in the run summary; B) tests extra URLs you type in; C) validates the YOUTUBE_API_KEY secret; D) checks Horizon features.
+#    plus a table in the run summary; B) tests extra URLs you type in; C) validates the YOUTUBE_API_KEY secret; D) checks Horizon features;
+#    E) scrapes github.com/trending exactly like the daily 'Top 3' step and prints the three repos with the most stars today.
 # It never calls DeepSeek -> 0 tokens.
 
 on:
@@ -282,7 +283,7 @@ jobs:
                       f.write(f"| {SI[r['status']]} | {r['name'].split(' (')[0]} | {used} | {r['in_window']}/{r.get('entries', 0)} | {r.get('newest', '')} | {note} |\n")
           PYEOF
 
-      - name: B-D. Extra URLs, YouTube API key, Horizon capabilities (no tokens)
+      - name: B-E. Extra URLs, YouTube API key, Horizon capabilities, GitHub Trending scrape (no tokens)
         run: |
           python - << 'PYEOF'
           import calendar, glob, json, os, re, time
@@ -358,4 +359,32 @@ jobs:
               except Exception:
                   pass
           print(f"{'✅' if 'category_groups' in blob else '❌'} balanced digest category_groups: {'present' if 'category_groups' in blob else 'NOT found in src/'}")
+
+
+          print("\n── E. GitHub Trending page scrape test (exactly what the daily 'Top 3' step reads; no tokens) ──")
+          import html as _html
+          def _text(x): return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", x))).strip()
+          def _num(x):
+              m = re.search(r"\d[\d,]*", x or "")
+              return int(m.group().replace(",", "")) if m else 0
+          try:
+              r = httpx.get("https://github.com/trending?since=daily", headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}, timeout=30.0, follow_redirects=True)
+              if r.status_code != 200:
+                  print(f"❌ HTTP {r.status_code} from github.com/trending")
+              else:
+                  repos = []
+                  for ch in re.split(r"<article\b", r.text)[1:]:
+                      ch = ch.split("</article>")[0]
+                      m = re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                      if not m:
+                          continue
+                      td = re.search(r"([\d,]+)\s+stars?\s+(?:today|this week|this month)", _text(ch), re.I)
+                      repos.append((len(repos) + 1, f"{m.group(1)}/{m.group(2)}", _num(td.group(1)) if td else 0))
+                  if not repos:
+                      print("❌ page loaded but no repository could be parsed (layout changed?)")
+                  else:
+                      top = sorted(repos, key=lambda x: (-x[2], x[0]))[:3]
+                      print(f"✅ parsed {len(repos)} repos; top 3 by stars today: " + ", ".join(f"{n} (+{t:,}, GitHub rank {k})" for k, n, t in top))
+          except Exception as e:
+              print(f"❌ {type(e).__name__}: {str(e)[:80]}")
           PYEOF

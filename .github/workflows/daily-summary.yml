@@ -15,7 +15,8 @@ jobs:
     env:
       TZ: Asia/Shanghai
       PYTHONUNBUFFERED: "1"
-      ENABLE_LLM_MERGE: "1"   # set to "0" to skip the (optional) same-AI merge call and save its tokens
+      ENABLE_LLM_MERGE: "1"
+      TRENDING_TOP_N: "3"   # how many GitHub Trending repos (ranked by stars gained today) to send each day   # set to "0" to skip the (optional) same-AI merge call and save its tokens
     permissions:
       contents: write
 
@@ -665,6 +666,8 @@ jobs:
               lines.append("💤 无更新: " + "、".join(quiet))
           if mismatch:
               lines.append("⚠️ 核对异常: " + "; ".join(mismatch))
+          if "dedup: could not parse AI response" in log:
+              lines.append("ℹ️ Horizon 内置主题去重本次解析失败（已跳过，由合并步骤兜底）")
           if status is not None and meta.get("candidates_loaded") is False:
               lines.append("⚠️ 未找到 data/source_candidates.json：备用源功能未启用，所有源只用主地址")
           if meta.get("unmatched_keys"):
@@ -676,6 +679,194 @@ jobs:
           open("data/source_report.txt", "w", encoding="utf-8").write(text)
           print("=== [Source Report] ===")
           print(text)
+          PYEOF
+
+      - name: GitHub Trending Top 3 by stars today (page scrape + README facts + short Chinese summary)
+        if: always() && !cancelled()
+        continue-on-error: true
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python - << 'PYEOF'
+          import datetime, html, json, os, re, time
+          import httpx
+
+          TOP_N = int(os.environ.get("TRENDING_TOP_N") or 3)
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+          GH_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
+          DS_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+          TODAY = datetime.datetime.now().strftime("%Y-%m-%d")
+          URL = "https://github.com/trending?since=daily"
+          os.makedirs("data", exist_ok=True)
+          NUM = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+
+          def write(msg, section="", usage=(0, 0)):
+              open("data/trending_message.txt", "w", encoding="utf-8").write(msg)
+              open("data/trending_section.md", "w", encoding="utf-8").write(section)
+              json.dump({"in": usage[0], "out": usage[1]}, open("data/trending_usage.json", "w"))
+
+
+          def text_of(s):
+              return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s))).strip()
+
+
+          def num_of(s):
+              m = re.search(r"\d[\d,]*", s or "")
+              return int(m.group().replace(",", "")) if m else 0
+
+
+          def fetch_page():
+              last = "request failed"
+              for attempt in (1, 2, 3):
+                  try:
+                      r = httpx.get(URL, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9",
+                                                  "Accept": "text/html,application/xhtml+xml"}, timeout=30.0, follow_redirects=True)
+                      if r.status_code == 200 and ("Box-row" in r.text or "stars today" in r.text):
+                          return r.text
+                      last = f"HTTP {r.status_code}" if r.status_code != 200 else "page has no trending list (layout changed?)"
+                  except Exception as e:
+                      last = type(e).__name__
+                  time.sleep(3 * attempt)
+              raise RuntimeError(last)
+
+
+          def parse(page):
+              repos = []
+              for ch in re.split(r"<article\b", page)[1:]:
+                  ch = ch.split("</article>")[0]
+                  m = re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                  if not m:
+                      continue
+                  owner, name = m.group(1), m.group(2)
+                  p = re.search(r"<p\b[^>]*>(.*?)</p>", ch, re.S)
+                  lang = re.search(r'itemprop="programmingLanguage"[^>]*>([^<]+)<', ch)
+                  o, n = re.escape(owner), re.escape(name)
+                  st = re.search(rf'href="/{o}/{n}/stargazers"[^>]*>(.*?)</a>', ch, re.S)
+                  fk = re.search(rf'href="/{o}/{n}/forks"[^>]*>(.*?)</a>', ch, re.S)
+                  td = re.search(r"([\d,]+)\s+stars?\s+(?:today|this week|this month)", text_of(ch), re.I)
+                  repos.append({"rank": len(repos) + 1, "repo": f"{owner}/{name}", "url": f"https://github.com/{owner}/{name}",
+                                "desc": text_of(p.group(1)) if p else "", "lang": lang.group(1).strip() if lang else "",
+                                "stars": num_of(text_of(st.group(1))) if st else 0, "forks": num_of(text_of(fk.group(1))) if fk else 0,
+                                "today": num_of(td.group(1)) if td else 0})
+              return repos
+
+
+          def gh_get(path, raw=False):
+              h = {"User-Agent": "horizon-trending", "Accept": "application/vnd.github.raw+json" if raw else "application/vnd.github+json"}
+              if GH_TOKEN:
+                  h["Authorization"] = f"Bearer {GH_TOKEN}"
+              r = httpx.get(f"https://api.github.com{path}", headers=h, timeout=25.0, follow_redirects=True)
+              return r.text if raw else r.json() if r.status_code == 200 else None
+
+
+          def clean_readme(t, n=2600):
+              t = re.sub(r"<!--.*?-->", "", t, flags=re.S)
+              t = re.sub(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)", "", t)
+              t = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", t)
+              t = re.sub(r"<picture.*?</picture>|<img[^>]*>|</?(?:a|p|div|br|span|h\d|center)\b[^>]*>", " ", t, flags=re.S | re.I)
+              return re.sub(r"\n{3,}", "\n\n", t).strip()[:n]
+
+
+          def ago(iso):
+              try:
+                  t = datetime.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+                  h = (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds() / 3600
+                  return f"{h:.0f} 小时前" if h < 48 else f"{h / 24:.0f} 天前"
+              except Exception:
+                  return ""
+
+
+          try:
+              page = fetch_page()
+              repos = parse(page)
+              if not repos:
+                  raise RuntimeError("could not parse any repository from the page (layout changed?)")
+          except Exception as e:
+              msg = (f"⚠️ {TODAY} 今天没能获取 GitHub Trending：{e}\n请手动查看 {URL}")
+              write(msg)
+              print(msg)
+              raise SystemExit(0)
+
+          total = len(repos)
+          top = sorted(repos, key=lambda r: (-r["today"], r["rank"]))[:TOP_N]
+          print(f"🔥 [GitHub Trending] parsed {total} repos; top {len(top)} by stars today: " + ", ".join(f"{r['repo']} (+{r['today']})" for r in top))
+          for r in top:
+              try:
+                  meta = gh_get(f"/repos/{r['repo']}") or {}
+                  r["license"] = (meta.get("license") or {}).get("spdx_id") or ""
+                  r["topics"] = meta.get("topics") or []
+                  r["pushed"] = ago(meta.get("pushed_at", ""))
+                  r["desc"] = r["desc"] or (meta.get("description") or "")
+                  r["lang"] = r["lang"] or (meta.get("language") or "")
+                  r["home"] = meta.get("homepage") or ""
+                  r["readme"] = clean_readme(gh_get(f"/repos/{r['repo']}/readme", raw=True) or "")
+              except Exception as e:
+                  print(f"   [GitHub API] {r['repo']}: {type(e).__name__} (continuing without README)")
+                  r.setdefault("readme", "")
+
+          # --- Chinese summary: ONLY from the facts above (cheap: ~one small call for all repos) ---
+          ai, usage = {}, (0, 0)
+          if DS_KEY:
+              try:
+                  model = json.load(open("data/config.json", encoding="utf-8")).get("ai", {}).get("model", "deepseek-chat")
+              except Exception:
+                  model = "deepseek-chat"
+              sys_p = ("你是技术情报编辑。根据我给出的 GitHub 仓库信息与 README 节选，用简体中文为每个仓库写简短摘要。"
+                       "严格要求：只能使用我提供的信息，不得编造功能、数据、版本、价格或链接；信息不足时在对应字段写“README 信息不足”。"
+                       "只输出 JSON：{\"items\":[{\"repo\":\"owner/name\",\"what\":\"这是什么（不超过50字）\","
+                       "\"use\":\"对谁有用、能解决什么问题（不超过60字）\",\"start\":\"最快上手方式（不超过50字，没有就写“README 未给出”）\"}]}")
+              payload = [{"repo": r["repo"], "description": r["desc"], "language": r["lang"], "topics": r.get("topics", []),
+                          "license": r.get("license", ""), "readme_excerpt": r.get("readme", "")} for r in top]
+              try:
+                  resp = httpx.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {DS_KEY}"},
+                                    json={"model": model, "messages": [{"role": "system", "content": sys_p},
+                                                                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                                          "temperature": 0.2, "max_tokens": 1500, "response_format": {"type": "json_object"}}, timeout=90.0)
+                  resp.raise_for_status()
+                  body = resp.json()
+                  u = body.get("usage", {})
+                  usage = (u.get("prompt_tokens", 0), u.get("completion_tokens", 0))
+                  txt = body["choices"][0]["message"]["content"].strip()
+                  txt = re.sub(r"^```(?:json)?|```$", "", txt, flags=re.M).strip()
+                  for it in json.loads(txt).get("items", []):
+                      ai[str(it.get("repo", "")).strip().lower()] = it
+              except Exception as e:
+                  print(f"   [AI summary] failed ({type(e).__name__}); sending the raw facts only")
+
+          lines = [f"🔥 GitHub 今日 Trending Top {len(top)}（按今日新增 star 排序）· {TODAY}",
+                   f"来源：github.com/trending（Repositories · Today · 全部语言），共解析 {total} 个仓库，取今日 star 增量最高的 {len(top)} 个", ""]
+          sec = [f"## 🔥 GitHub 今日 Trending Top {len(top)}（按今日新增 star）", ""]
+          for i, r in enumerate(top):
+              facts = [f"⭐ 今日 +{r['today']:,}", f"总 {r['stars']:,}", f"🍴 {r['forks']:,}"]
+              if r["lang"]:
+                  facts.append(r["lang"])
+              if r.get("license"):
+                  facts.append(r["license"])
+              if r.get("pushed"):
+                  facts.append(f"最近推送 {r['pushed']}")
+              it = ai.get(r["repo"].lower(), {})
+              blk = [f"{NUM[i]} {r['repo']}（GitHub 榜单第 {r['rank']} 位）", " · ".join(facts), r["url"]]
+              if r["desc"]:
+                  blk.append(f"📝 简介：{r['desc']}")
+              if it:
+                  blk += [f"🔎 这是什么：{it.get('what', '')}", f"🎯 适合谁：{it.get('use', '')}", f"🚀 上手：{it.get('start', '')}"]
+              lines += blk + [""]
+              sec += [f"#### {i + 1}. [{r['repo']}]({r['url']})", "- " + " · ".join(facts), f"- 榜单位置：第 {r['rank']} 位"]
+              if r["desc"]:
+                  sec.append(f"- 简介：{r['desc']}")
+              if it:
+                  sec += [f"- 这是什么：{it.get('what', '')}", f"- 适合谁：{it.get('use', '')}", f"- 上手：{it.get('start', '')}"]
+              sec.append("")
+          if ai:
+              lines.append("以上中文摘要由 AI 根据仓库简介与 README 生成，仅供参考，请以仓库页面为准。")
+              sec.append("> 中文摘要由 AI 根据仓库简介与 README 生成，仅供参考。")
+          msg = "\n".join(lines).strip()
+          write(msg, "\n".join(sec).strip() + "\n", usage)
+          print(msg)
+          print(f"[GitHub Trending] AI summary tokens: in={usage[0]} out={usage[1]}")
           PYEOF
 
       - name: Consolidate, Verify & Prepare Outputs
@@ -730,24 +921,35 @@ jobs:
           except Exception:
               pass
 
+          t_in = t_out = 0
+          try:
+              _tu = json.load(open("data/trending_usage.json", encoding="utf-8"))
+              t_in, t_out = int(_tu.get("in", 0)), int(_tu.get("out", 0))
+          except Exception:
+              pass
+
           def ledger():
               if h_in is None:
-                  line = f"💰 Tokens: Horizon UNKNOWN (usage line not found in run log) + Merge in={m_in}/out={m_out} — check the DeepSeek console"
+                  line = f"💰 token：Horizon 用量未读到（日志缺少统计行）+ 合并 {m_in + m_out:,} + 趋势摘要 {t_in + t_out:,}，请到 DeepSeek 控制台核对"
+                  full = line
               else:
-                  ti, to = h_in + m_in, h_out + m_out
+                  ti, to = h_in + m_in + t_in, h_out + m_out + t_out
                   est = (ti + to) * 0.85 / 1_000_000
                   upper = (ti * 2.0 + to * 8.0) / 1_000_000
-                  line = f"💰 Tokens: Horizon in={h_in}/out={h_out} + Merge in={m_in}/out={m_out} = {ti + to} | ≈¥{est:.2f} (0.85 RMB/M, calibrated on the real 2026-11-10 bill: 165,749 tokens = ¥0.14; list-price upper bound ¥{upper:.2f})"
+                  line = f"💰 今日 token {ti + to:,}（Horizon {h_in + h_out:,} + 合并 {m_in + m_out:,} + 趋势摘要 {t_in + t_out:,}）≈ ¥{est:.2f}"
+                  full = line + f" | 估算系数 0.85 元/百万（按 2026-11-10 真实账单 165,749 token = ¥0.14 折算）；按官方标价且无缓存的上限 ¥{upper:.2f}"
                   if ti + to > 290000:
-                      line += " | ⚠️ OVER BUDGET"
+                      line += " ⚠️ 超出 0.25 元预算"
+                      full += " ⚠️ OVER BUDGET"
+              tail = ""
               if not hook_ran:
-                  line += " | ⚠️ pre-scoring hook did NOT run"
+                  tail += " ⚠️ 打分前限额钩子未运行"
               if failed_sources:
-                  line += f"\n⚠️ 抓取失败的源 {len(failed_sources)} 个: " + "; ".join(failed_sources[:8])
-              print(line)
+                  tail += f"\n⚠️ Horizon 抓取失败的源 {len(failed_sources)} 个: " + "; ".join(failed_sources[:8])
+              print(full + tail)
               try:
                   with open("data/cost_ledger.txt", "w", encoding="utf-8") as _f:
-                      _f.write(line)
+                      _f.write(line + tail)
               except Exception:
                   pass
 
@@ -855,6 +1057,33 @@ jobs:
           set_ready(is_ready)
           PYEOF
 
+      - name: Append GitHub Trending to the report (only when the digest is ready)
+        if: steps.verify_report.outputs.ready == 'true'
+        continue-on-error: true
+        run: |
+          python3 - << 'PYEOF'
+          import datetime, os
+
+          date_str = os.environ.get("DATE") or datetime.datetime.now().strftime("%Y-%m-%d")   # Beijing date (TZ env), same as the Consolidate step
+          sec = open("data/trending_section.md", encoding="utf-8").read().strip() if os.path.exists("data/trending_section.md") else ""
+          if not sec:
+              print("[Trending Append] no trending section today; report left unchanged")
+              raise SystemExit(0)
+          MARK = "<!-- HORIZON_TRENDING -->"
+          done = 0
+          for p in (f"data/summaries/horizon-{date_str}-zh.md", f"docs/_posts/{date_str}-summary-zh.md"):
+              if not os.path.exists(p):
+                  continue
+              txt = open(p, encoding="utf-8").read()
+              if MARK in txt:
+                  continue
+              with open(p + ".tmp", "w", encoding="utf-8") as f:
+                  f.write(txt.rstrip() + "\n\n---\n\n" + MARK + "\n" + sec + "\n")
+              os.replace(p + ".tmp", p)
+              done += 1
+          print(f"[Trending Append] appended the GitHub Trending section to {done} file(s)")
+          PYEOF
+
       - name: Deploy to GitHub Pages
         if: steps.verify_report.outputs.ready == 'true'
         uses: peaceiris/actions-gh-pages@v4
@@ -891,6 +1120,48 @@ jobs:
               r2 = httpx.post(f"https://api.telegram.org/bot{bot_token}/sendDocument", data={"chat_id": chat_id, "caption": f"📅 Horizon AI 自媒体选题日报 ({date_str})"}, files={"document": (os.path.basename(file_path), f, "text/markdown")}, timeout=60.0)
           assert r2.json().get("ok") is True, f"sendDocument failed: {r2.text}"
           print("✅ Telegram message and document sent successfully!")
+          PYEOF
+
+      - name: Send GitHub Trending Top 3 to Telegram (always, even on days without a digest)
+        if: always() && !cancelled()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          uv run python - << 'PYEOF'
+          import os
+          import httpx
+
+          path = "data/trending_message.txt"
+          if not os.path.exists(path):
+              print("[Trending Telegram] no message file (the fetch step did not run); nothing to send")
+              raise SystemExit(0)
+          text = open(path, encoding="utf-8").read().strip()
+          tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN", ""), os.environ.get("TELEGRAM_CHAT_ID", "")
+          if not text or not tok or not chat:
+              print("[Trending Telegram] missing message or Telegram credentials; skipped")
+              raise SystemExit(0)
+          chunks, cur = [], ""
+          for block in text.split("\n\n"):
+              if cur and len(cur) + len(block) + 2 > 3900:
+                  chunks.append(cur)
+                  cur = block
+              else:
+                  cur = (cur + "\n\n" + block) if cur else block
+          if cur:
+              chunks.append(cur)
+          for i, chunk in enumerate(chunks, 1):
+              r = httpx.post(f"https://api.telegram.org/bot{tok}/sendMessage",
+                             data={"chat_id": chat, "text": chunk[:4000], "disable_web_page_preview": "true"}, timeout=30.0)
+              ok = False
+              try:
+                  ok = bool(r.json().get("ok"))
+              except Exception:
+                  pass
+              print(f"[Trending Telegram] part {i}/{len(chunks)}: {'sent' if ok else 'FAILED'}")
+              if not ok:
+                  raise SystemExit(1)
           PYEOF
 
       - name: Notify Telegram on Failure or Empty Digest
