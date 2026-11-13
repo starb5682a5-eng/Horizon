@@ -199,7 +199,8 @@ jobs:
 
           feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
           print(f"🧭 === [Source Resolver] {len(feeds)} RSS sources | primary first, then fallbacks | window {HOURS:g}h | zero tokens ===")
-          unmatched = sorted(k for k in cands if k not in {f["name"] for f in feeds})
+          all_names = {f["name"] for f in cfg.get("sources", {}).get("rss", [])}      # includes sources you disabled (their candidates are kept on purpose)
+          unmatched = sorted(k for k in cands if k not in all_names)
           if unmatched:
               print("⚠️ source_candidates.json has names that match no source in config.github.json (typo or renamed source): " + "; ".join(unmatched))
           with cf.ThreadPoolExecutor(max_workers=8) as ex:
@@ -375,7 +376,9 @@ jobs:
                   repos = []
                   for ch in re.split(r"<article\b", r.text)[1:]:
                       ch = ch.split("</article>")[0]
-                      m = re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                      m = (re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                           or re.search(r'href="/([^/"\s?#]+)/([^/"\s?#]+)/stargazers"', ch)
+                           or re.search(r'href="/(?!sponsors/|login|signup|features|topics|trending|settings|orgs/)([^/"\s?#]+)/([^/"\s?#]+)"', ch))
                       if not m:
                           continue
                       td = re.search(r"([\d,]+)\s+stars?\s+(?:today|this week|this month)", _text(ch), re.I)
@@ -383,7 +386,10 @@ jobs:
                   if not repos:
                       print("❌ page loaded but no repository could be parsed (layout changed?)")
                   else:
+                      for k, n, t in repos:
+                          print(f"   #{k:>2} {n:<48} +{t:>6,} today")
                       top = sorted(repos, key=lambda x: (-x[2], x[0]))[:3]
+                      print(f"   page has {r.text.count('<article')} <article> blocks; parsed {len(repos)} repositories")
                       print(f"✅ parsed {len(repos)} repos; top 3 by stars today: " + ", ".join(f"{n} (+{t:,}, GitHub rank {k})" for k, n, t in top))
           except Exception as e:
               print(f"❌ {type(e).__name__}: {str(e)[:80]}")

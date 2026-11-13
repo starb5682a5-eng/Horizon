@@ -200,7 +200,8 @@ jobs:
 
           feeds = [r for r in cfg.get("sources", {}).get("rss", []) if r.get("enabled", True) is not False]
           print(f"🧭 === [Source Resolver] {len(feeds)} RSS sources | primary first, then fallbacks | window {HOURS:g}h | zero tokens ===")
-          unmatched = sorted(k for k in cands if k not in {f["name"] for f in feeds})
+          all_names = {f["name"] for f in cfg.get("sources", {}).get("rss", [])}      # includes sources you disabled (their candidates are kept on purpose)
+          unmatched = sorted(k for k in cands if k not in all_names)
           if unmatched:
               print("⚠️ source_candidates.json has names that match no source in config.github.json (typo or renamed source): " + "; ".join(unmatched))
           with cf.ThreadPoolExecutor(max_workers=8) as ex:
@@ -737,7 +738,10 @@ jobs:
               repos = []
               for ch in re.split(r"<article\b", page)[1:]:
                   ch = ch.split("</article>")[0]
-                  m = re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                  # 1) the repo link inside <h2>; 2) the .../stargazers link every card has; 3) the first plain /owner/repo link
+                  m = (re.search(r'<h2[^>]*>.*?href="/([^/"\s?#]+)/([^/"\s?#]+)"', ch, re.S)
+                       or re.search(r'href="/([^/"\s?#]+)/([^/"\s?#]+)/stargazers"', ch)
+                       or re.search(r'href="/(?!sponsors/|login|signup|features|topics|trending|settings|orgs/)([^/"\s?#]+)/([^/"\s?#]+)"', ch))
                   if not m:
                       continue
                   owner, name = m.group(1), m.group(2)
@@ -782,6 +786,7 @@ jobs:
           try:
               page = fetch_page()
               repos = parse(page)
+              n_articles = page.count("<article")
               if not repos:
                   raise RuntimeError("could not parse any repository from the page (layout changed?)")
           except Exception as e:
@@ -791,6 +796,9 @@ jobs:
               raise SystemExit(0)
 
           total = len(repos)
+          print(f"🔥 [GitHub Trending] page has {n_articles} <article> blocks, parsed {total} repositories")
+          for r in repos:
+              print(f"   #{r['rank']:>2} {r['repo']:<48} +{r['today']:>6,} today | total {r['stars']:>8,} | {r['lang'] or '-'}")
           top = sorted(repos, key=lambda r: (-r["today"], r["rank"]))[:TOP_N]
           print(f"🔥 [GitHub Trending] parsed {total} repos; top {len(top)} by stars today: " + ", ".join(f"{r['repo']} (+{r['today']})" for r in top))
           for r in top:
@@ -838,6 +846,8 @@ jobs:
 
           lines = [f"🔥 GitHub 今日 Trending Top {len(top)}（按今日新增 star 排序）· {TODAY}",
                    f"来源：github.com/trending（Repositories · Today · 全部语言），共解析 {total} 个仓库，取今日 star 增量最高的 {len(top)} 个", ""]
+          if total < n_articles:
+              lines.insert(2, f"⚠️ 页面有 {n_articles} 个条目但只解析出 {total} 个，榜单可能不完整，请以 github.com/trending 为准")
           sec = [f"## 🔥 GitHub 今日 Trending Top {len(top)}（按今日新增 star）", ""]
           for i, r in enumerate(top):
               facts = [f"⭐ 今日 +{r['today']:,}", f"总 {r['stars']:,}", f"🍴 {r['forks']:,}"]
